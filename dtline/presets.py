@@ -25,6 +25,7 @@ SAMPLER_ID_TO_NAME = {
     16: "DDIM Trailing",
     17: "UniPC Trailing",
     18: "UniPC AYS",
+    19: "TCD Trailing",
 }
 
 SAMPLER_NAME_TO_ID = {v: k for k, v in SAMPLER_ID_TO_NAME.items()}
