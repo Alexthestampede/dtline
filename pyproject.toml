@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dtline"
+version = "0.1.0"
+description = "AI Agent Image Generation CLI for Draw Things gRPC Server"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "AlexTheStampede"}
+]
+keywords = ["ai", "image-generation", "draw-things", "grpc", "cli"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "grpcio>=1.60.0",
+    "flatbuffers>=23.5.26",
+    "Pillow>=10.0.0",
+    "numpy>=1.24.0",
+    "fpzip>=1.2.0",
+    "protobuf>=3.20.0",
+]
+
+[project.optional-dependencies]
+dev = []
+
+[project.scripts]
+dtline = "dtline.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Alexthestampede/dtline"
+Repository = "https://github.com/Alexthestampede/dtline"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["dtline*"]
+
+[tool.setuptools.package-data]
+dtline = ["py.typed"]
