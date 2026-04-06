@@ -51,6 +51,7 @@ echo "Installing dtline package..."
 source "$DTLINE_BIN/activate"
 pip install --quiet -U pip wheel setuptools
 pip install --quiet -e .
+pip install "flatbuffers>=24.3.0" 2>/dev/null || true
 echo "✓ Package installed"
 
 echo ""
