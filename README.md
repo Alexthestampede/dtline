@@ -67,6 +67,7 @@ dtline uses settings from `settings/config.json` and environment variables:
 | `DTLINE_VERIFY_SSL` | Verify TLS certs (0 or 1) | `0` |
 | `DTLINE_SSL_CERT` | Path to root CA certificate | `~/.local/dtline/root_ca.crt` |
 | `DTLINE_OUTPUT_DIR` | Default output directory | `~/.local/dtline/outputs` |
+| `DTLINE_CLIP_SKIP` | Default CLIP skip layers | `1` |
 
 ## Usage
 
@@ -84,10 +85,21 @@ dtline generate "a cat" \
   --preset zimage_updated \
   --aspect-ratio 3:4 \
   --steps 8 \
-  --seed 42
+  --seed 42 \
+  --clip-skip 2  # Required for Pony/Illustrious models
 ```
 
 **Note:** The `--model` argument accepts either the **display name** (e.g., `"Z Image Turbo 1.0 (6-bit)"`) or the **filename** (e.g., `z_image_turbo_1.0_q6p.ckpt`). Use `dtline list-models` to see available models.
+
+For Pony/Illustrious models (SDXL-based), you must specify `--clip-skip 2`:
+
+```bash
+dtline generate "1girl" \
+  --model "Wendigo2 (8-bit)" \
+  --preset "Pony/SDXL (Official)" \
+  --clip-skip 2 \
+  --negative-preset "Straysignal's Chroma negative"
+```
 
 ### List Available Models
 
