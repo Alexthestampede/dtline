@@ -251,6 +251,11 @@ class DtlineClient:
             config.original_image_height = height
             config.target_image_width = width
             config.target_image_height = height
+        else:
+            config.original_image_width = width
+            config.original_image_height = height
+            config.target_image_width = width
+            config.target_image_height = height
 
         if input_image:
             input_path = Path(input_image)
