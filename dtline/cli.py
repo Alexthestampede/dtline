@@ -96,6 +96,8 @@ def cmd_generate(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
         scheduler = args.scheduler or preset.sampler
         shift = preset.shift
         clip_skip = preset.clip_skip
+        if args.clip_skip is not None:
+            clip_skip = args.clip_skip
         seed_mode = preset.seed_mode
         tea_cache = preset.tea_cache
         base_res = preset.base_resolution
@@ -108,6 +110,7 @@ def cmd_generate(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
         seed_mode = 2
         tea_cache = False
         base_res = 1024
+        clip_skip = args.clip_skip if args.clip_skip is not None else 1
 
     width, height = _resolve_aspect_ratio(args, config_loader)
 
@@ -362,6 +365,7 @@ def main(argv: list[str] | None = None) -> int:
     gen_parser.add_argument("--steps", type=int, help="Number of steps")
     gen_parser.add_argument("--cfg", type=float, help="CFG scale")
     gen_parser.add_argument("--scheduler", help="Sampler name")
+    gen_parser.add_argument("--clip-skip", type=int, help="CLIP skip layers")
     gen_parser.add_argument("--seed", type=int, help="Random seed")
     gen_parser.add_argument("--negative-prompt", help="Negative prompt")
     gen_parser.add_argument("--negative-preset", help="Negative prompt preset name")
