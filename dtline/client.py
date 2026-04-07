@@ -96,6 +96,16 @@ class DtlineClient:
                 return m.get("file", model_name)
         return model_name
 
+    def _get_model_latent_size(self, model_filename: str) -> int:
+        """Get the latent size for a model. SDXL models have latent_size=128."""
+        metadata = self._fetch_model_metadata()
+        for m in metadata:
+            if m.get("file") == model_filename or m.get("name") == model_filename:
+                default_scale = m.get("default_scale")
+                if default_scale:
+                    return 1024 // default_scale
+        return 64  # Default SD 1.5 latent size
+
     def _get_client(self) -> DrawThingsClient:
         if self._client is None:
             self._client = DrawThingsClient(
@@ -246,12 +256,15 @@ class DtlineClient:
             loras=lora_configs,
         )
 
-        if hires_fix:
+        # SDXL conditioning: only set original/target dimensions for SDXL models (latent_size=128)
+        latent_size = self._get_model_latent_size(model_filename)
+        if latent_size == 128:  # SDXL models
             config.original_image_width = width
             config.original_image_height = height
             config.target_image_width = width
             config.target_image_height = height
-        else:
+
+        if hires_fix:
             config.original_image_width = width
             config.original_image_height = height
             config.target_image_width = width
