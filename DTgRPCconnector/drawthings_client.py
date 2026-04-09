@@ -51,34 +51,26 @@ import Control as ControlFB
 
 # Scheduler name to SamplerType enum mapping
 SCHEDULER_MAP = {
-    "DPM++ 2M Karras": SamplerType.SamplerType.DPMPP2MKarras,
+    "DPMPP2M Karras": SamplerType.SamplerType.DPMPP2MKarras,
     "Euler A": SamplerType.SamplerType.EulerA,
     "DDIM": SamplerType.SamplerType.DDIM,
     "PLMS": SamplerType.SamplerType.PLMS,
-    "DPM++ SDE Karras": SamplerType.SamplerType.DPMPPSDEKarras,
+    "DPMPP SDE Karras": SamplerType.SamplerType.DPMPPSDEKarras,
     "UniPC": SamplerType.SamplerType.UniPC,
     "LCM": SamplerType.SamplerType.LCM,
     "Euler A Substep": SamplerType.SamplerType.EulerASubstep,
-    "DPM++ SDE Substep": SamplerType.SamplerType.DPMPPSDESubstep,
+    "DPMPP SDE Substep": SamplerType.SamplerType.DPMPPSDESubstep,
     "TCD": SamplerType.SamplerType.TCD,
     "Euler A Trailing": SamplerType.SamplerType.EulerATrailing,
-    "DPM++ SDE Trailing": SamplerType.SamplerType.DPMPPSDETrailing,
-    "DPM++ 2M AYS": SamplerType.SamplerType.DPMPP2MAYS,
+    "DPMPP SDE Trailing": SamplerType.SamplerType.DPMPPSDETrailing,
+    "DPMPP2M AYS": SamplerType.SamplerType.DPMPP2MAYS,
     "Euler A AYS": SamplerType.SamplerType.EulerAAYS,
-    "DPM++ SDE AYS": SamplerType.SamplerType.DPMPPSDEAYS,
-    "DPM++ 2M Trailing": SamplerType.SamplerType.DPMPP2MTrailing,
+    "DPMPP SDE AYS": SamplerType.SamplerType.DPMPPSDEAYS,
+    "DPMPP2M Trailing": SamplerType.SamplerType.DPMPP2MTrailing,
     "DDIM Trailing": SamplerType.SamplerType.DDIMTrailing,
     "UniPC Trailing": SamplerType.SamplerType.UniPCTrailing,
     "UniPC AYS": SamplerType.SamplerType.UniPCAYS,
     "TCD Trailing": SamplerType.SamplerType.TCDTrailing,
-    # Legacy aliases (no spaces)
-    "DPMPP2M Karras": SamplerType.SamplerType.DPMPP2MKarras,
-    "DPMPP SDE Karras": SamplerType.SamplerType.DPMPPSDEKarras,
-    "DPMPP SDE Substep": SamplerType.SamplerType.DPMPPSDESubstep,
-    "DPMPP SDE Trailing": SamplerType.SamplerType.DPMPPSDETrailing,
-    "DPMPP2M AYS": SamplerType.SamplerType.DPMPP2MAYS,
-    "DPMPP SDE AYS": SamplerType.SamplerType.DPMPPSDEAYS,
-    "DPMPP2M Trailing": SamplerType.SamplerType.DPMPP2MTrailing,
     # Common aliases
     "UniPC ays": SamplerType.SamplerType.UniPCAYS,
     "unipc ays": SamplerType.SamplerType.UniPCAYS,
@@ -127,6 +119,24 @@ class ControlNetConfig:
     control_mode: int = 0  # ControlMode.Balanced
     target_blocks: Optional[List[str]] = None
     input_override: int = 0  # ControlInputType.Unspecified
+
+
+@dataclass
+class ReferenceImage:
+    """Configuration for a reference/moodboard image.
+
+    Used with edit/kontext models and IP-Adapter to provide visual references.
+    The model can see and use the content of these images in generation.
+
+    Attributes:
+        image: Image input (PIL Image, file path, or bytes)
+        weight: Influence weight (0.0-1.0, default 1.0)
+        hint_type: Type of reference ("shuffle" for edit models, "ipadapterplus" for IP-Adapter)
+    """
+
+    image: any  # PIL Image, path str, or bytes
+    weight: float = 1.0
+    hint_type: str = "shuffle"  # or "ipadapterplus", "ipadapterfull", etc.
 
 
 @dataclass
@@ -763,6 +773,7 @@ class DrawThingsClient:
         input_image=None,
         mask_image=None,
         hints: Optional[List] = None,
+        reference_images: Optional[List] = None,
         metadata_override=None,
         progress_callback: Optional[Callable[[str, int], None]] = None,
         preview_callback: Optional[Callable[[bytes], None]] = None,
@@ -778,6 +789,7 @@ class DrawThingsClient:
             mask_image: Mask image for inpainting (PIL Image, path, or bytes).
                        White=inpaint area, black=preserve area.
             hints: List of HintProto objects for ControlNet hints
+            reference_images: List of ReferenceImage objects for moodboard/references
             metadata_override: MetadataOverride protobuf object (for LoRA metadata)
             progress_callback: Callback for progress (stage_name, step_number)
             preview_callback: Callback for preview images
@@ -804,6 +816,44 @@ class DrawThingsClient:
             mask_hash = hashlib.sha256(mask_tensor).digest()
             contents.append(mask_tensor)
 
+        # Process reference images (moodboard)
+        reference_hints = []
+        if reference_images is not None:
+            for ref_img in reference_images:
+                if hasattr(ref_img, "image"):
+                    # It's a ReferenceImage dataclass
+                    ref_path = ref_img.image
+                    ref_weight = ref_img.weight
+                    ref_hint_type = ref_img.hint_type
+                elif isinstance(ref_img, (str, Image.Image)):
+                    # It's just an image path or PIL Image
+                    ref_path = ref_img
+                    ref_weight = 1.0
+                    ref_hint_type = "shuffle"  # default for edit models
+                elif isinstance(ref_img, dict):
+                    # Dict format
+                    ref_path = ref_img.get("image", ref_img.get("path"))
+                    ref_weight = ref_img.get("weight", 1.0)
+                    ref_hint_type = ref_img.get("hint_type", "shuffle")
+                else:
+                    continue
+
+                # Encode the reference image
+                ref_tensor = self._encode_image(ref_path, config.width, config.height)
+                ref_hash = hashlib.sha256(ref_tensor).digest()
+                contents.append(ref_tensor)
+
+                # Create HintProto for this reference
+                hint_proto = imageService_pb2.HintProto(
+                    hintType=ref_hint_type,
+                    tensors=[
+                        imageService_pb2.TensorAndWeight(
+                            tensor=ref_hash, weight=ref_weight
+                        )
+                    ],
+                )
+                reference_hints.append(hint_proto)
+
         # Build gRPC request
         request_kwargs = {
             "prompt": prompt,
@@ -821,8 +871,13 @@ class DrawThingsClient:
             request_kwargs["mask"] = mask_hash
         if contents:
             request_kwargs["contents"] = contents
-        if hints:
-            request_kwargs["hints"] = hints
+
+        # Merge hints
+        all_hints = list(hints) if hints else []
+        all_hints.extend(reference_hints)
+        if all_hints:
+            request_kwargs["hints"] = all_hints
+
         if metadata_override is not None:
             request_kwargs["override"] = metadata_override
 

@@ -15,6 +15,7 @@ from drawthings_client import (
     DrawThingsClient,
     ImageGenerationConfig,
     LoRAConfig,
+    ReferenceImage,
 )
 from tensor_decoder import tensor_to_pil
 
@@ -725,22 +726,6 @@ class DtlineClient:
         if len(reference_images) > 5:
             raise invalid_config("Maximum 5 reference images supported")
 
-        # Encode reference images
-        reference_data = []
-        contents = []
-
-        for i, img_path in enumerate(reference_images):
-            path = Path(img_path)
-            if not path.exists():
-                raise image_not_found(str(path))
-
-            tensor, sha256 = self._encode_reference_image(str(path))
-            reference_data.append({"hash": sha256, "index": i})
-            contents.append(tensor)
-
-            if verbose:
-                print(f"  Reference {i + 1}: {path.name} ({len(tensor):,} bytes)")
-
         # Build LoRA configs
         if loras:
             lora_configs = [
@@ -786,67 +771,24 @@ class DtlineClient:
                 loras=lora_configs,
             )
 
-            # Build hints for IP-Adapter Plus
-            import imageService_pb2
+            # Build reference images using new DTgRPCconnector ReferenceImage
+            reference_image_objects = []
+            for img_path in reference_images:
+                ref = ReferenceImage(
+                    image=img_path,
+                    weight=1.0 / len(reference_images),
+                    hint_type="shuffle",  # Use "shuffle" for edit models like Klein
+                )
+                reference_image_objects.append(ref)
 
-            hints = []
-            for ref in reference_data:
-                hint = imageService_pb2.HintProto()
-                hint.hintType = "ipadapterplus"  # IP-Adapter Plus hint type
-
-                tensor_weight = imageService_pb2.TensorAndWeight()
-                tensor_weight.tensor = ref["hash"]
-                tensor_weight.weight = 1.0 / len(reference_images)  # Equal weight
-
-                hint.tensors.append(tensor_weight)
-                hints.append(hint)
-
-            # Build request
-            config_bytes = config.to_flatbuffer()
-
-            request = imageService_pb2.ImageGenerationRequest(
+            # Use the updated generate_image with reference_images support
+            generated_images = client.generate_image(
                 prompt=instruction,
-                negativePrompt=negative_prompt if negative_prompt else "",
-                configuration=config_bytes,
-                scaleFactor=1,
-                user="dtline",
-                device=imageService_pb2.LAPTOP,
-                chunked=True,
-                hints=hints,
-                contents=contents,
+                config=config,
+                negative_prompt=negative_prompt,
+                reference_images=reference_image_objects,
+                progress_callback=progress_wrapper,
             )
-
-            # Stream response
-            generated_images = []
-            image_chunks = []
-
-            for response in client.stub.GenerateImage(request):
-                # Handle progress signposts
-                if response.HasField("currentSignpost"):
-                    signpost = response.currentSignpost
-                    if signpost.HasField("sampling"):
-                        progress_wrapper("Sampling", signpost.sampling.step)
-                    elif signpost.HasField("textEncoded"):
-                        progress_wrapper("Text Encoded", 0)
-                    elif signpost.HasField("imageEncoded"):
-                        progress_wrapper("Image Encoded", 0)
-                    elif signpost.HasField("imageDecoded"):
-                        progress_wrapper("Image Decoded", 0)
-
-                # Handle chunked responses
-                if response.generatedImages:
-                    for img_data in response.generatedImages:
-                        image_chunks.append(img_data)
-
-                    if response.chunkState == imageService_pb2.LAST_CHUNK:
-                        if len(image_chunks) > 1:
-                            combined = b"".join(image_chunks)
-                            generated_images.append(combined)
-                        elif len(image_chunks) == 1:
-                            generated_images.append(image_chunks[0])
-                        image_chunks = []
-
-            tracker.finish()
 
             if not generated_images:
                 raise generation_error("No images were returned from the server")
@@ -872,7 +814,7 @@ class DtlineClient:
                 "width": width,
                 "height": height,
                 "seed": seed,
-                "reference_images": len(reference_images),
+                "reference_images": len(reference_image_objects),
                 "duration_seconds": time.time() - tracker.start_time,
                 "instruction": instruction,
                 "negative_prompt": negative_prompt,

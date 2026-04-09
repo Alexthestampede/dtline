@@ -23,9 +23,10 @@ Example usage:
 from drawthings_client import (
     DrawThingsClient,
     ImageGenerationConfig,
+    ReferenceImage,
     StreamingProgressHandler,
     quick_generate,
-    SCHEDULER_MAP
+    SCHEDULER_MAP,
 )
 
 __version__ = "1.0.0"
@@ -33,7 +34,8 @@ __author__ = "Draw Things Community"
 __all__ = [
     "DrawThingsClient",
     "ImageGenerationConfig",
+    "ReferenceImage",
     "StreamingProgressHandler",
     "quick_generate",
-    "SCHEDULER_MAP"
+    "SCHEDULER_MAP",
 ]
