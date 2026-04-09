@@ -769,6 +769,9 @@ class DtlineClient:
                 tea_cache=tea_cache,
                 resolution_dependent_shift=resolution_dependent_shift,
                 loras=lora_configs,
+                image_guidance_scale=1.5,
+                guidance_embed=3.5,
+                t5_text_encoder=True,
             )
 
             # Build reference images using new DTgRPCconnector ReferenceImage
