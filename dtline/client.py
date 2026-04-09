@@ -749,8 +749,8 @@ class DtlineClient:
         else:
             lora_configs = []
 
-        # Default size for moodboard (1024x768 matches Draw Things reference)
-        width, height = 1024, 768
+        # Default size for moodboard (1024x1024 is standard)
+        width, height = 1024, 1024
 
         # Calculate shift
         final_shift = float(shift)
@@ -784,14 +784,7 @@ class DtlineClient:
                 tea_cache=tea_cache,
                 resolution_dependent_shift=resolution_dependent_shift,
                 loras=lora_configs,
-                image_guidance_scale=1.5,
             )
-
-            # Set original/target dimensions for edit models
-            config.original_image_width = width
-            config.original_image_height = height
-            config.target_image_width = width
-            config.target_image_height = height
 
             # Build hints for IP-Adapter Plus
             import imageService_pb2
