@@ -384,6 +384,44 @@ class DtlineClient:
         ]
         return any(keyword in name_lower for keyword in edit_keywords)
 
+    def _encode_reference_image(
+        self, image_path: str, target_size: int = 1024
+    ) -> tuple[bytes, bytes]:
+        """Encode a reference image for moodboard/IP-Adapter.
+
+        Args:
+            image_path: Path to the reference image
+            target_size: Target size for resizing (default 1024)
+
+        Returns:
+            Tuple of (image_tensor, sha256_hash)
+        """
+        from PIL import Image as PILImage
+        import hashlib
+
+        img = PILImage.open(image_path)
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+
+        # Resize if too large (preserving aspect ratio)
+        if max(img.size) > target_size:
+            ratio = target_size / max(img.size)
+            new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
+            img = img.resize(new_size, PILImage.Resampling.LANCZOS)
+
+        # Round to 64 pixels
+        width = ((img.width + 32) // 64) * 64
+        height = ((img.height + 32) // 64) * 64
+        if img.size != (width, height):
+            img = img.resize((width, height), PILImage.Resampling.LANCZOS)
+
+        # Encode to tensor
+        client = self._get_client()
+        tensor = client._encode_image(img, width, height)
+        sha256 = hashlib.sha256(tensor).digest()
+
+        return tensor, sha256
+
     def edit(
         self,
         input_image: str,
@@ -608,6 +646,233 @@ class DtlineClient:
                 "width": width,
                 "height": height,
                 "seed": seed,
+                "duration_seconds": time.time() - tracker.start_time,
+                "instruction": instruction,
+                "negative_prompt": negative_prompt,
+            }
+
+            return output_paths, metadata
+
+        except DtlineError:
+            raise
+        except Exception as e:
+            error_str = str(e).lower()
+            if "connection" in error_str or "refused" in error_str:
+                raise connection_error(str(e)) from e
+            elif "ssl" in error_str or "tls" in error_str or "certificate" in error_str:
+                raise auth_error("TLS error during generation", str(e)) from e
+            else:
+                raise generation_error(str(e)) from e
+
+    def moodboard(
+        self,
+        instruction: str,
+        model: str,
+        reference_images: list[str],
+        steps: int,
+        cfg: float,
+        scheduler: str,
+        seed: int | None = None,
+        negative_prompt: str = "",
+        loras: list[tuple[str, float]] | None = None,
+        shift: float = 1.0,
+        clip_skip: int = 1,
+        seed_mode: int = 2,
+        tea_cache: bool = False,
+        resolution_dependent_shift: bool = False,
+        progress_callback: Callable[[str, int], None] | None = None,
+        verbose: bool = False,
+        output_dir: str | None = None,
+    ) -> tuple[list[Path], dict]:
+        """Generate image using multiple reference images (moodboard/IP-Adapter).
+
+        This combines multiple reference images (person from image 1, suit from image 2,
+        background from image 3, etc.) using IP-Adapter Plus for style/composition reference.
+
+        Args:
+            instruction: Text instruction combining the references
+                       (e.g., "person from image 1 with the suit from image 2")
+            model: Model name/filename to use
+            reference_images: List of paths to reference images (2-4 recommended)
+            steps: Number of generation steps
+            cfg: CFG scale
+            scheduler: Scheduler/sampler name
+            seed: Random seed (None for random)
+            negative_prompt: Negative prompt
+            loras: List of (name, weight) tuples
+            shift: Shift parameter
+            clip_skip: CLIP skip layers
+            seed_mode: Seed mode
+            tea_cache: Enable TeaCache
+            resolution_dependent_shift: Auto-calculate shift from resolution
+            progress_callback: Progress callback
+            verbose: Verbose output
+            output_dir: Output directory
+
+        Returns:
+            Tuple of (list of output paths, metadata dict)
+        """
+        import math
+
+        if seed is None:
+            seed = random.randint(0, 2**32 - 1)
+
+        model_filename = self._resolve_model_name(model)
+
+        # Validate reference images
+        if len(reference_images) < 1:
+            raise invalid_config("At least one reference image is required")
+        if len(reference_images) > 5:
+            raise invalid_config("Maximum 5 reference images supported")
+
+        # Encode reference images
+        reference_data = []
+        contents = []
+
+        for i, img_path in enumerate(reference_images):
+            path = Path(img_path)
+            if not path.exists():
+                raise image_not_found(str(path))
+
+            tensor, sha256 = self._encode_reference_image(str(path))
+            reference_data.append({"hash": sha256, "index": i})
+            contents.append(tensor)
+
+            if verbose:
+                print(f"  Reference {i + 1}: {path.name} ({len(tensor):,} bytes)")
+
+        # Build LoRA configs
+        if loras:
+            lora_configs = [
+                LoRAConfig(file=name, weight=weight) for name, weight in loras
+            ]
+        else:
+            lora_configs = []
+
+        # Default size for moodboard (1024x1024 is standard)
+        width, height = 1024, 1024
+
+        # Calculate shift
+        final_shift = float(shift)
+        if resolution_dependent_shift:
+            resolution_factor = (width * height) / 256
+            final_shift = math.exp(
+                ((resolution_factor - 256) * (1.15 - 0.5) / (4096 - 256)) + 0.5
+            )
+
+        try:
+            client = self._get_client()
+            tracker = ProgressTracker(steps, verbose=verbose)
+
+            def progress_wrapper(stage: str, step: int):
+                tracker.update(stage, step)
+                if progress_callback:
+                    progress_callback(stage, step)
+
+            # Build generation config
+            config = ImageGenerationConfig(
+                model=model_filename,
+                steps=steps,
+                width=width,
+                height=height,
+                cfg_scale=cfg,
+                scheduler=scheduler,
+                seed=seed,
+                shift=final_shift,
+                clip_skip=clip_skip,
+                seed_mode=seed_mode,
+                tea_cache=tea_cache,
+                resolution_dependent_shift=resolution_dependent_shift,
+                loras=lora_configs,
+            )
+
+            # Build hints for IP-Adapter Plus
+            import imageService_pb2
+
+            hints = []
+            for ref in reference_data:
+                hint = imageService_pb2.HintProto()
+                hint.hintType = "ipadapterplus"  # IP-Adapter Plus hint type
+
+                tensor_weight = imageService_pb2.TensorAndWeight()
+                tensor_weight.tensor = ref["hash"]
+                tensor_weight.weight = 1.0 / len(reference_images)  # Equal weight
+
+                hint.tensors.append(tensor_weight)
+                hints.append(hint)
+
+            # Build request
+            config_bytes = config.to_flatbuffer()
+
+            request = imageService_pb2.ImageGenerationRequest(
+                prompt=instruction,
+                negativePrompt=negative_prompt if negative_prompt else "",
+                configuration=config_bytes,
+                scaleFactor=1,
+                user="dtline",
+                device=imageService_pb2.LAPTOP,
+                chunked=True,
+                hints=hints,
+                contents=contents,
+            )
+
+            # Stream response
+            generated_images = []
+            image_chunks = []
+
+            for response in client.stub.GenerateImage(request):
+                # Handle progress signposts
+                if response.HasField("currentSignpost"):
+                    signpost = response.currentSignpost
+                    if signpost.HasField("sampling"):
+                        progress_wrapper("Sampling", signpost.sampling.step)
+                    elif signpost.HasField("textEncoded"):
+                        progress_wrapper("Text Encoded", 0)
+                    elif signpost.HasField("imageEncoded"):
+                        progress_wrapper("Image Encoded", 0)
+                    elif signpost.HasField("imageDecoded"):
+                        progress_wrapper("Image Decoded", 0)
+
+                # Handle chunked responses
+                if response.generatedImages:
+                    for img_data in response.generatedImages:
+                        image_chunks.append(img_data)
+
+                    if response.chunkState == imageService_pb2.LAST_CHUNK:
+                        if len(image_chunks) > 1:
+                            combined = b"".join(image_chunks)
+                            generated_images.append(combined)
+                        elif len(image_chunks) == 1:
+                            generated_images.append(image_chunks[0])
+                        image_chunks = []
+
+            tracker.finish()
+
+            if not generated_images:
+                raise generation_error("No images were returned from the server")
+
+            output_paths = []
+            for i, image_data in enumerate(generated_images):
+                buffer = StringIO()
+                with redirect_stdout(buffer), redirect_stderr(buffer):
+                    pil_img = tensor_to_pil(image_data)
+                out_dir = Path(output_dir) if output_dir else Path("outputs")
+                out_dir.mkdir(parents=True, exist_ok=True)
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                filename = f"dtline_moodboard_{timestamp}_{seed}_{i + 1}.png"
+                filepath = out_dir / filename
+                pil_img.save(filepath, "PNG")
+                output_paths.append(filepath)
+
+            metadata = {
+                "model": model,
+                "steps": steps,
+                "cfg": cfg,
+                "scheduler": scheduler,
+                "width": width,
+                "height": height,
+                "seed": seed,
+                "reference_images": len(reference_images),
                 "duration_seconds": time.time() - tracker.start_time,
                 "instruction": instruction,
                 "negative_prompt": negative_prompt,
