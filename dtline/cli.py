@@ -847,7 +847,7 @@ def main(argv: list[str] | None = None) -> int:
     moodboard_parser = subparsers.add_parser(
         "moodboard",
         help="Generate image using multiple reference images (IP-Adapter)",
-        description=f"Generate image using multiple reference images. {SERVER_WARNING}",
+        description=f"Generate image using multiple reference images. Uses 'shuffle' hint type for edit models (Klein) or 'ipadapterplus' for style transfer. {SERVER_WARNING}",
     )
     moodboard_parser.add_argument(
         "instruction",

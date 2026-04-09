@@ -6,6 +6,7 @@ AI Agent Image Generation CLI for Draw Things gRPC Server.
 
 - Simple command-line interface for Draw Things image generation
 - **Image editing with automatic edit model detection** (auto-sets strength=1.0 for Klein, Qwen Edit, etc.)
+- **Moodboard support** - Combine multiple reference images for composition (person from image 1 + outfit from image 2)
 - Preset and aspect ratio support from existing settings
 - JSON output for agent consumption
 - TLS support with automatic certificate handling
@@ -161,6 +162,43 @@ dtline edit photo.png "add oil painting effect" \
   --model "Juggernaut XL v9" \
   --strength 0.75  # Works for standard img2img
 ```
+
+### Moodboard / Multiple Reference Images
+
+Generate images using multiple reference images (IP-Adapter style) for composition:
+
+```bash
+dtline moodboard "person from image 1 wearing outfit from image 2" person.png outfit.png
+```
+
+**Note:** For edit/kontext models (FLUX.2 Klein), use `hint_type="shuffle"` internally which properly encodes reference images as visual tokens. For IP-Adapter models, it uses `"ipadapterplus"`.
+
+**Example - Car Showroom:**
+
+```bash
+# Generate base images first
+dtline generate "white sports car" --model "Z Image Turbo 1.0 (6-bit)" --preset zimage_updated --seed 42
+dtline edit outputs/dtline_*.png "make it red" --model "FLUX.2 [klein] 4B (6-bit)" --preset klein_official --seed 123
+dtline edit outputs/dtline_*.png "make it blue" --model "FLUX.2 [klein] 4B (6-bit)" --preset klein_official --seed 456
+
+# Then combine them with moodboard
+dtline moodboard "the car from image 1 in a showroom, with the car from image 2 on the left and the car from image 3 on the right, keep the colors the same" \
+  white_car.png red_car.png blue_car.png \
+  --model "FLUX.2 [klein] 9B (6-bit)" \
+  --preset klein_official \
+  --seed 999
+```
+
+**Usage:**
+
+```bash
+dtline moodboard <instruction> <image1> [image2] [image3] [image4] [image5] [options]
+```
+
+- Supports 1-5 reference images
+- Uses `"shuffle"` hint type for edit/kontext models (automatically detected)
+- Reference images are weighted equally by default
+- Best results with edit models like FLUX.2 Klein
 
 ### List Available Models
 
