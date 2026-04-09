@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dtline"
-version = "1.0.0"
+version = "1.1.0"
 description = "AI Agent Image Generation CLI for Draw Things gRPC Server"
 readme = "README.md"
 requires-python = ">=3.8"

@@ -5,6 +5,7 @@ AI Agent Image Generation CLI for Draw Things gRPC Server.
 ## Features
 
 - Simple command-line interface for Draw Things image generation
+- **Image editing with automatic edit model detection** (auto-sets strength=1.0 for Klein, Qwen Edit, etc.)
 - Preset and aspect ratio support from existing settings
 - JSON output for agent consumption
 - TLS support with automatic certificate handling
@@ -99,6 +100,66 @@ dtline generate "1girl" \
   --preset "Pony/SDXL (Official)" \
   --clip-skip 2 \
   --negative-preset "Straysignal's Chroma negative"
+```
+
+### Edit an Image
+
+Edit an existing image using AI instructions (img2img with edit models):
+
+```bash
+dtline edit photo.png "make it sunset"
+```
+
+**Note:** For edit/kontext models (FLUX Klein, Qwen Image Edit, etc.), dtline **automatically sets strength=1.0** regardless of user input. This is required by these models - setting strength lower will corrupt the reference encoding and produce poor results.
+
+```bash
+dtline edit photo.png "make the car red" \
+  --model "FLUX.2 [klein] 4B (6-bit)" \
+  --preset klein_official
+  # strength is automatically set to 1.0 for Klein models
+```
+
+With options:
+
+```bash
+dtline edit photo.png "add cyberpunk style" \
+  --model "FLUX.2 [klein] 4B (6-bit)" \
+  --preset klein_official \
+  --steps 4 \
+  --cfg 1.0 \
+  --image-guidance-scale 1.5 \
+  --seed 42
+```
+
+**Workflow Example:**
+
+```bash
+# Step 1: Generate base image with Z Image Turbo
+dtline generate "a white sports car on mountain road" \
+  --model "Z Image Turbo 1.0 (6-bit)" \
+  --preset zimage_updated \
+  --seed 42
+
+# Step 2: Edit with FLUX Klein to change color
+dtline edit outputs/dtline_*.png "make the car red" \
+  --model "FLUX.2 [klein] 4B (6-bit)" \
+  --preset klein_official
+```
+
+**Edit Model Detection:**
+
+dtline automatically detects edit models and sets strength=1.0 for:
+- FLUX Klein models (kontext)
+- Qwen Image Edit models
+- InstructPix2Pix models
+- Other models with "edit", "kontext", "instruct", or "pix2pix" in the name
+
+For standard img2img models (SD 1.5, SDXL, etc.), you can control strength manually:
+
+```bash
+dtline edit photo.png "add oil painting effect" \
+  --model "Juggernaut XL v9" \
+  --strength 0.75  # Works for standard img2img
 ```
 
 ### List Available Models

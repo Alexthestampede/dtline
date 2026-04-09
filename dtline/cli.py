@@ -342,12 +342,190 @@ def cmd_config(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
     return 0
 
 
+def cmd_edit(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
+    """Edit an image using AI instructions."""
+    if not args.quiet:
+        print(f"Editing image...")
+        print(f"Image: {args.image}")
+        print(f"Instruction: {args.instruction}")
+        if args.verbose:
+            print(SERVER_WARNING)
+
+    cfg = config_loader.load()
+
+    server = args.server or cfg.server
+    insecure = args.insecure if args.insecure is not None else cfg.insecure
+    verify_ssl = args.verify_ssl if args.verify_ssl is not None else cfg.verify_ssl
+    ssl_cert_path = args.ssl_cert or cfg.ssl_cert_path
+    output_dir = args.output_dir or cfg.output_dir
+
+    if args.model:
+        model = args.model
+    elif cfg.model:
+        model = cfg.model
+    elif cfg.last_used_model:
+        model = cfg.last_used_model
+    else:
+        print(
+            "ERROR: No model specified. Use --model or set default in config.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if args.preset:
+        pm = PresetManager()
+        preset = pm.get_preset(args.preset)
+        if not preset:
+            print(f"ERROR: Preset not found: {args.preset}", file=sys.stderr)
+            return 1
+        steps = args.steps or preset.recommended_steps
+        cfg_value = args.cfg or preset.recommended_cfg
+        scheduler = args.scheduler or preset.sampler
+        shift = preset.shift
+        clip_skip = preset.clip_skip
+        if args.clip_skip is not None:
+            clip_skip = args.clip_skip
+        seed_mode = preset.seed_mode
+        tea_cache = preset.tea_cache
+        resolution_dependent_shift = preset.resolution_dependent_shift
+    else:
+        steps = args.steps or cfg.steps
+        cfg_value = args.cfg or cfg.cfg
+        scheduler = args.scheduler or cfg.scheduler
+        shift = 1.0
+        clip_skip = 1
+        seed_mode = 2
+        tea_cache = False
+        resolution_dependent_shift = False
+        clip_skip = args.clip_skip if args.clip_skip is not None else 1
+
+    # Get strength and image_guidance_scale
+    # strength=None means auto-detect (0.75 for standard img2img, 1.0 for edit models)
+    strength = args.strength if args.strength is not None else None
+    image_guidance_scale = (
+        args.image_guidance_scale if args.image_guidance_scale is not None else 1.5
+    )
+
+    negative_prompt = ""
+    if args.negative_prompt:
+        negative_prompt = args.negative_prompt
+    elif args.negative_preset:
+        pm = PresetManager()
+        np_obj = pm.get_negative_prompt(args.negative_preset)
+        if np_obj:
+            negative_prompt = np_obj.negative_prompt
+
+    loras = None
+    if args.lora:
+        loras = []
+        for lora_arg in args.lora:
+            if ":" in lora_arg:
+                lora_name, weight_str = lora_arg.rsplit(":", 1)
+                try:
+                    weight = float(weight_str)
+                except ValueError:
+                    weight = 1.0
+                loras.append((lora_name, weight))
+            else:
+                loras.append((lora_arg, 1.0))
+
+    client = DtlineClient(
+        server=server,
+        insecure=insecure,
+        verify_ssl=verify_ssl,
+        ssl_cert_path=ssl_cert_path,
+    )
+
+    try:
+        if args.dry_run:
+            print("Dry run - configuration is valid:")
+            print(f"  Server: {server}")
+            print(f"  Model: {model}")
+            print(f"  Steps: {steps}, CFG: {cfg_value}")
+            print(f"  Scheduler: {scheduler}")
+            print(f"  Strength: {strength}")
+            print(f"  Image Guidance: {image_guidance_scale}")
+            print(f"  Input Image: {args.image}")
+            return 0
+
+        if not args.quiet:
+            print(f"Model: {model}")
+            if strength is not None:
+                print(f"Strength: {strength}")
+            print(f"Image Guidance: {image_guidance_scale}")
+            if args.preset:
+                print(f"Preset: {args.preset}")
+
+        paths, metadata = client.edit(
+            input_image=args.image,
+            instruction=args.instruction,
+            model=model,
+            steps=steps,
+            cfg=cfg_value,
+            scheduler=scheduler,
+            strength=strength,
+            image_guidance_scale=image_guidance_scale,
+            seed=args.seed,
+            negative_prompt=negative_prompt,
+            loras=loras,
+            shift=shift,
+            clip_skip=clip_skip,
+            seed_mode=seed_mode,
+            tea_cache=tea_cache,
+            resolution_dependent_shift=resolution_dependent_shift,
+            verbose=args.verbose,
+            output_dir=output_dir,
+        )
+
+        if args.json:
+            output = GenerationOutput(
+                success=True,
+                images=[
+                    {
+                        "path": str(p),
+                        "bytes": p.stat().st_size,
+                        "seed": metadata.get("seed"),
+                    }
+                    for p in paths
+                ],
+                metadata=metadata,
+            )
+            output.print_json()
+        else:
+            output = GenerationOutput(success=True)
+            output.images = [
+                {
+                    "path": str(p),
+                    "bytes": p.stat().st_size,
+                    "seed": metadata.get("seed"),
+                }
+                for p in paths
+            ]
+            output.metadata = metadata
+            output.print_human(verbose=args.verbose)
+
+        return 0
+
+    except DtlineError as e:
+        if args.json:
+            import json
+
+            print(json.dumps(e.to_dict(), indent=2))
+        else:
+            print(f"ERROR: {e.message}", file=sys.stderr)
+            if e.details:
+                print(f"  {e.details}", file=sys.stderr)
+        return 1
+    finally:
+        client.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="dtline",
         description="AI Agent Image Generation CLI for Draw Things gRPC Server",
     )
-    parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
+    parser.add_argument("--version", action="version", version="%(prog)s 1.1.0")
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -449,6 +627,56 @@ def main(argv: list[str] | None = None) -> int:
     )
     config_parser.add_argument("--json", action="store_true", default=False)
     config_parser.set_defaults(func=cmd_config)
+
+    # Edit subcommand
+    edit_parser = subparsers.add_parser(
+        "edit",
+        help="Edit an image using AI instructions",
+        description=f"Edit an image using AI instructions. {SERVER_WARNING}",
+    )
+    edit_parser.add_argument("image", help="Path to input image to edit")
+    edit_parser.add_argument(
+        "instruction", help="Edit instruction (e.g., 'make it sunset')"
+    )
+    edit_parser.add_argument("--model", help="Model filename")
+    edit_parser.add_argument("--preset", help="Preset name (from settings/presets/)")
+    edit_parser.add_argument("--steps", type=int, help="Number of steps")
+    edit_parser.add_argument("--cfg", type=float, help="CFG scale")
+    edit_parser.add_argument("--scheduler", help="Sampler name")
+    edit_parser.add_argument(
+        "--strength",
+        type=float,
+        help="Edit strength (0.0-1.0). Auto-set to 1.0 for edit models (Klein, Qwen Edit, etc.)",
+    )
+    edit_parser.add_argument(
+        "--image-guidance-scale", type=float, help="Image guidance scale, default: 1.5"
+    )
+    edit_parser.add_argument("--clip-skip", type=int, help="CLIP skip layers")
+    edit_parser.add_argument("--seed", type=int, help="Random seed")
+    edit_parser.add_argument("--negative-prompt", help="Negative prompt")
+    edit_parser.add_argument("--negative-preset", help="Negative prompt preset name")
+    edit_parser.add_argument(
+        "--lora", action="append", help="LoRA in file:weight format"
+    )
+    edit_parser.add_argument("--output-dir", help="Output directory")
+    edit_parser.add_argument("--insecure", action="store_true", help="Disable TLS")
+    edit_parser.add_argument(
+        "--verify-ssl", action="store_true", help="Verify TLS certificates"
+    )
+    edit_parser.add_argument("--ssl-cert", help="Path to root CA certificate")
+    edit_parser.add_argument("--server", help="gRPC server address")
+    edit_parser.add_argument("--retries", type=int, default=3, help="Number of retries")
+    edit_parser.add_argument(
+        "--json", action="store_true", default=False, help="JSON output"
+    )
+    edit_parser.add_argument(
+        "--dry-run", action="store_true", help="Validate without editing"
+    )
+    edit_parser.add_argument("--verbose", action="store_true", help="Verbose output")
+    edit_parser.add_argument(
+        "--quiet", action="store_true", help="Suppress progress output"
+    )
+    edit_parser.set_defaults(func=cmd_edit)
 
     args = parser.parse_args(argv)
     config_loader = ConfigLoader()

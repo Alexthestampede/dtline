@@ -364,3 +364,264 @@ class DtlineClient:
             "tea_cache": preset.tea_cache,
             "base_resolution": preset.base_resolution,
         }
+
+    def _is_edit_model(self, model_name: str) -> bool:
+        """Check if a model is an edit/kontext model that requires strength=1.0.
+
+        Edit models include:
+        - Flux Klein (kontext models)
+        - Qwen Image Edit
+        - InstructPix2Pix models
+        - Other reference-based edit models
+        """
+        name_lower = model_name.lower()
+        edit_keywords = [
+            "klein",
+            "kontext",
+            "edit",
+            "instruct",
+            "pix2pix",
+        ]
+        return any(keyword in name_lower for keyword in edit_keywords)
+
+    def edit(
+        self,
+        input_image: str,
+        instruction: str,
+        model: str,
+        steps: int,
+        cfg: float,
+        scheduler: str,
+        strength: float | None = None,
+        image_guidance_scale: float = 1.5,
+        seed: int | None = None,
+        negative_prompt: str = "",
+        loras: list[tuple[str, float]] | None = None,
+        shift: float = 1.0,
+        clip_skip: int = 1,
+        seed_mode: int = 2,
+        tea_cache: bool = False,
+        resolution_dependent_shift: bool = False,
+        progress_callback: Callable[[str, int], None] | None = None,
+        verbose: bool = False,
+        output_dir: str | None = None,
+    ) -> tuple[list[Path], dict]:
+        """Edit an image using AI instructions (img2img/edit models).
+
+        For edit/kontext models (Klein, Qwen Edit, etc.), strength is automatically
+        set to 1.0 regardless of user input, as required by these models.
+
+        Args:
+            input_image: Path to input image to edit
+            instruction: Text instruction for the edit (e.g., "make it sunset")
+            model: Model name/filename to use
+            steps: Number of generation steps
+            cfg: CFG scale
+            scheduler: Scheduler/sampler name
+            strength: Edit strength (0.0-1.0). Default is 0.75 for standard img2img,
+                     automatically set to 1.0 for edit/kontext models.
+            image_guidance_scale: Image guidance for edit models, default 1.5
+            seed: Random seed (None for random)
+            negative_prompt: Negative prompt
+            loras: List of (name, weight) tuples
+            shift: Shift parameter
+            clip_skip: CLIP skip layers
+            seed_mode: Seed mode
+            tea_cache: Enable TeaCache
+            resolution_dependent_shift: Auto-calculate shift from resolution
+            progress_callback: Progress callback
+            verbose: Verbose output
+            output_dir: Output directory
+
+        Returns:
+            Tuple of (list of output paths, metadata dict)
+        """
+        import math
+
+        if seed is None:
+            seed = random.randint(0, 2**32 - 1)
+
+        model_filename = self._resolve_model_name(model)
+
+        # Auto-detect edit models and enforce strength=1.0
+        if self._is_edit_model(model_filename):
+            effective_strength = 1.0
+            if strength is not None and strength != 1.0 and verbose:
+                print(
+                    f"Note: Edit model detected ({model}), forcing strength=1.0 (was {strength})"
+                )
+        else:
+            effective_strength = strength if strength is not None else 0.75
+
+        # Load and validate input image
+        input_path = Path(input_image)
+        if not input_path.exists():
+            raise image_not_found(str(input_path))
+
+        # Load image to get dimensions
+        from PIL import Image as PILImage
+
+        pil_img = PILImage.open(input_path)
+        if pil_img.mode != "RGB":
+            pil_img = pil_img.convert("RGB")
+
+        # Cap to max resolution (edit models work best at 1024-1536px)
+        MAX_EDIT_PIXELS = 2048
+        longest_side = max(pil_img.width, pil_img.height)
+        if longest_side > MAX_EDIT_PIXELS:
+            scale_down = MAX_EDIT_PIXELS / longest_side
+            new_w = int(pil_img.width * scale_down)
+            new_h = int(pil_img.height * scale_down)
+            pil_img = pil_img.resize((new_w, new_h), PILImage.Resampling.LANCZOS)
+
+        # Round to nearest 64 pixels (required for VAE)
+        width = ((pil_img.width + 32) // 64) * 64
+        height = ((pil_img.height + 32) // 64) * 64
+
+        if pil_img.size != (width, height):
+            pil_img = pil_img.resize((width, height), PILImage.Resampling.LANCZOS)
+
+        # Calculate resolution-dependent shift if enabled
+        final_shift = float(shift)
+        if resolution_dependent_shift:
+            resolution_factor = (width * height) / 256
+            final_shift = math.exp(
+                ((resolution_factor - 256) * (1.15 - 0.5) / (4096 - 256)) + 0.5
+            )
+
+        if loras:
+            lora_configs = [
+                LoRAConfig(file=name, weight=weight) for name, weight in loras
+            ]
+        else:
+            lora_configs = []
+
+        # Build generation config
+        config = ImageGenerationConfig(
+            model=model_filename,
+            steps=steps,
+            width=width,
+            height=height,
+            cfg_scale=cfg,
+            scheduler=scheduler,
+            seed=seed,
+            strength=effective_strength,
+            image_guidance_scale=image_guidance_scale,
+            shift=final_shift,
+            clip_skip=clip_skip,
+            seed_mode=seed_mode,
+            tea_cache=tea_cache,
+            resolution_dependent_shift=resolution_dependent_shift,
+            loras=lora_configs,
+        )
+
+        # Set original/target dimensions for edit models
+        config.original_image_width = width
+        config.original_image_height = height
+        config.target_image_width = width
+        config.target_image_height = height
+
+        try:
+            client = self._get_client()
+            tracker = ProgressTracker(steps, verbose=verbose)
+
+            def progress_wrapper(stage: str, step: int):
+                tracker.update(stage, step)
+                if progress_callback:
+                    progress_callback(stage, step)
+
+            # Encode image and send request
+            image_tensor = client._encode_image(pil_img, width, height)
+            image_hash = __import__("hashlib").sha256(image_tensor).digest()
+
+            import imageService_pb2
+
+            config_bytes = config.to_flatbuffer()
+
+            request = imageService_pb2.ImageGenerationRequest(
+                prompt=instruction,
+                negativePrompt=negative_prompt if negative_prompt else "",
+                configuration=config_bytes,
+                scaleFactor=1,
+                user="dtline",
+                device=imageService_pb2.LAPTOP,
+                chunked=True,
+                image=image_hash,
+                contents=[image_tensor],
+            )
+
+            # Stream response
+            generated_images = []
+            image_chunks = []
+
+            for response in client.stub.GenerateImage(request):
+                # Handle progress signposts
+                if response.HasField("currentSignpost"):
+                    signpost = response.currentSignpost
+                    if signpost.HasField("sampling"):
+                        progress_wrapper("Sampling", signpost.sampling.step)
+                    elif signpost.HasField("textEncoded"):
+                        progress_wrapper("Text Encoded", 0)
+                    elif signpost.HasField("imageEncoded"):
+                        progress_wrapper("Image Encoded", 0)
+                    elif signpost.HasField("imageDecoded"):
+                        progress_wrapper("Image Decoded", 0)
+
+                # Handle chunked responses
+                if response.generatedImages:
+                    for img_data in response.generatedImages:
+                        image_chunks.append(img_data)
+
+                    if response.chunkState == imageService_pb2.LAST_CHUNK:
+                        if len(image_chunks) > 1:
+                            combined = b"".join(image_chunks)
+                            generated_images.append(combined)
+                        elif len(image_chunks) == 1:
+                            generated_images.append(image_chunks[0])
+                        image_chunks = []
+
+            tracker.finish()
+
+            if not generated_images:
+                raise generation_error("No images were returned from the server")
+
+            output_paths = []
+            for i, image_data in enumerate(generated_images):
+                buffer = StringIO()
+                with redirect_stdout(buffer), redirect_stderr(buffer):
+                    pil_img = tensor_to_pil(image_data)
+                out_dir = Path(output_dir) if output_dir else Path("outputs")
+                out_dir.mkdir(parents=True, exist_ok=True)
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                filename = f"dtline_edit_{timestamp}_{seed}_{i + 1}.png"
+                filepath = out_dir / filename
+                pil_img.save(filepath, "PNG")
+                output_paths.append(filepath)
+
+            metadata = {
+                "model": model,
+                "steps": steps,
+                "cfg": cfg,
+                "scheduler": scheduler,
+                "strength": effective_strength,
+                "image_guidance_scale": image_guidance_scale,
+                "width": width,
+                "height": height,
+                "seed": seed,
+                "duration_seconds": time.time() - tracker.start_time,
+                "instruction": instruction,
+                "negative_prompt": negative_prompt,
+            }
+
+            return output_paths, metadata
+
+        except DtlineError:
+            raise
+        except Exception as e:
+            error_str = str(e).lower()
+            if "connection" in error_str or "refused" in error_str:
+                raise connection_error(str(e)) from e
+            elif "ssl" in error_str or "tls" in error_str or "certificate" in error_str:
+                raise auth_error("TLS error during generation", str(e)) from e
+            else:
+                raise generation_error(str(e)) from e
