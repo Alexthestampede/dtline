@@ -101,6 +101,10 @@ class Preset:
     def controls(self) -> list:
         return self.data.get("controls", [])
 
+    @property
+    def prompt_expander(self) -> str:
+        return self.data.get("prompt_expander_system", "")
+
     def to_dict(self) -> dict:
         return {
             "name": self.name,
@@ -116,6 +120,7 @@ class Preset:
             "tea_cache": self.tea_cache,
             "loras": self.loras,
             "controls": self.controls,
+            "prompt_expander": self.prompt_expander,
         }
 
 

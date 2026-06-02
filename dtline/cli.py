@@ -360,9 +360,10 @@ def cmd_preset_info(args: argparse.Namespace, config_loader: ConfigLoader) -> in
         print(f"Sampler: {preset.sampler}")
         print(f"Shift: {preset.shift}")
         print(f"CLIP Skip: {preset.clip_skip}")
-        if preset.data.get("prompt_expander"):
-            print(f"\nPrompt Expander Help:")
-            print(f"  {preset.data['prompt_expander']}")
+        if preset.data.get("prompt_expander_system"):
+            print(f"\nPrompt Expander System (for AI agents):")
+            print(f"  Use this as the system prompt when calling Ernie.")
+            print(f"  Length: ~{len(preset.data['prompt_expander_system'])} chars")
         if preset.data.get("notes"):
             print(f"\nNotes: {preset.data['notes']}")
     return 0
@@ -822,7 +823,8 @@ def main(argv: list[str] | None = None) -> int:
     # Preset info subcommand
     preset_info_parser = subparsers.add_parser(
         "preset-info",
-        help="Show detailed preset information including prompt expander help",
+        help="Show detailed preset information",
+        description="Show detailed preset information including prompt expander system prompts for models like Ernie that require prompt expansion. Use --json for programmatic access.",
     )
     preset_info_parser.add_argument("preset", help="Preset name")
     preset_info_parser.add_argument("--json", action="store_true", default=False)
