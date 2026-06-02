@@ -102,6 +102,9 @@ def cmd_generate(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
         seed_mode = preset.seed_mode
         tea_cache = preset.tea_cache
         base_res = preset.base_resolution
+        
+        # Load LoRAs from preset
+        preset_loras = preset.loras
     else:
         steps = args.steps or cfg.steps
         cfg_value = args.cfg or cfg.cfg
@@ -112,6 +115,7 @@ def cmd_generate(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
         tea_cache = False
         base_res = 1024
         clip_skip = args.clip_skip if args.clip_skip is not None else 1
+        preset_loras = []
 
     width, height = _resolve_aspect_ratio(args, config_loader)
 
@@ -125,18 +129,24 @@ def cmd_generate(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
             negative_prompt = np_obj.negative_prompt
 
     loras = None
-    if args.lora:
+    if args.lora or preset_loras:
         loras = []
-        for lora_arg in args.lora:
-            if ":" in lora_arg:
-                lora_name, weight_str = lora_arg.rsplit(":", 1)
-                try:
-                    weight = float(weight_str)
-                except ValueError:
-                    weight = 1.0
-                loras.append((lora_name, weight))
-            else:
-                loras.append((lora_arg, 1.0))
+        # Add preset LoRAs first
+        for lora in preset_loras:
+            if isinstance(lora, dict):
+                loras.append((lora.get("file", lora.get("name", "")), lora.get("weight", 1.0)))
+        # Add command-line LoRAs (can override or add to preset)
+        if args.lora:
+            for lora_arg in args.lora:
+                if ":" in lora_arg:
+                    lora_name, weight_str = lora_arg.rsplit(":", 1)
+                    try:
+                        weight = float(weight_str)
+                    except ValueError:
+                        weight = 1.0
+                    loras.append((lora_name, weight))
+                else:
+                    loras.append((lora_arg, 1.0))
 
     client = DtlineClient(
         server=server,

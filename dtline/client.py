@@ -97,6 +97,16 @@ class DtlineClient:
                 return m.get("file", model_name)
         return model_name
 
+    def _resolve_lora_name(self, lora_name: str) -> str:
+        """Resolve LoRA name to filename, similar to models."""
+        metadata = self._fetch_model_metadata()
+        for m in metadata:
+            # Check if this is a LoRA entry (has lora in filename or is in loras list)
+            if m.get("file", "").endswith(('.ckpt', '.safetensors')) and 'lora' in m.get("file", "").lower():
+                if m.get("name") == lora_name or m.get("file") == lora_name:
+                    return m.get("file", lora_name)
+        return lora_name
+
     def _get_model_latent_size(self, model_filename: str) -> int:
         """Get the latent size for a model. SDXL models have latent_size=128."""
         metadata = self._fetch_model_metadata()
@@ -233,7 +243,7 @@ class DtlineClient:
 
         if loras:
             lora_configs = [
-                LoRAConfig(file=name, weight=weight) for name, weight in loras
+                LoRAConfig(file=self._resolve_lora_name(name), weight=weight) for name, weight in loras
             ]
         else:
             lora_configs = []
@@ -532,7 +542,7 @@ class DtlineClient:
 
         if loras:
             lora_configs = [
-                LoRAConfig(file=name, weight=weight) for name, weight in loras
+                LoRAConfig(file=self._resolve_lora_name(name), weight=weight) for name, weight in loras
             ]
         else:
             lora_configs = []
@@ -733,7 +743,7 @@ class DtlineClient:
         # Build LoRA configs
         if loras:
             lora_configs = [
-                LoRAConfig(file=name, weight=weight) for name, weight in loras
+                LoRAConfig(file=self._resolve_lora_name(name), weight=weight) for name, weight in loras
             ]
         else:
             lora_configs = []
