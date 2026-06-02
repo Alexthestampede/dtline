@@ -255,6 +255,8 @@ class DtlineClient:
             hires_fix_start_height=hires_fix_start_height // 64,
             hires_fix_strength=hires_fix_strength,
             loras=lora_configs,
+            batch_count=1,
+            batch_size=1,
         )
 
         # SDXL conditioning: only set original/target dimensions for SDXL models (latent_size=128)
@@ -552,6 +554,8 @@ class DtlineClient:
             tea_cache=tea_cache,
             resolution_dependent_shift=resolution_dependent_shift,
             loras=lora_configs,
+            batch_count=1,
+            batch_size=1,
         )
 
         # Set original/target dimensions for edit models
@@ -772,6 +776,8 @@ class DtlineClient:
                 image_guidance_scale=1.5,
                 guidance_embed=3.5,
                 t5_text_encoder=True,
+                batch_count=1,
+                batch_size=1,
             )
 
             # Build reference images using new DTgRPCconnector ReferenceImage

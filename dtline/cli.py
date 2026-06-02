@@ -342,6 +342,32 @@ def cmd_config(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
     return 0
 
 
+def cmd_preset_info(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
+    pm = PresetManager()
+    preset = pm.get_preset(args.preset)
+    if not preset:
+        print(f"ERROR: Preset not found: {args.preset}", file=sys.stderr)
+        return 1
+    
+    if args.json:
+        print(json.dumps(preset.to_dict(), indent=2))
+    else:
+        print(f"Preset: {preset.name}")
+        if preset.description:
+            print(f"Description: {preset.description}")
+        print(f"Steps: {preset.recommended_steps}")
+        print(f"CFG: {preset.recommended_cfg}")
+        print(f"Sampler: {preset.sampler}")
+        print(f"Shift: {preset.shift}")
+        print(f"CLIP Skip: {preset.clip_skip}")
+        if preset.data.get("prompt_expander"):
+            print(f"\nPrompt Expander Help:")
+            print(f"  {preset.data['prompt_expander']}")
+        if preset.data.get("notes"):
+            print(f"\nNotes: {preset.data['notes']}")
+    return 0
+
+
 def cmd_edit(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
     """Edit an image using AI instructions."""
     if not args.quiet:
@@ -792,6 +818,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     config_parser.add_argument("--json", action="store_true", default=False)
     config_parser.set_defaults(func=cmd_config)
+
+    # Preset info subcommand
+    preset_info_parser = subparsers.add_parser(
+        "preset-info",
+        help="Show detailed preset information including prompt expander help",
+    )
+    preset_info_parser.add_argument("preset", help="Preset name")
+    preset_info_parser.add_argument("--json", action="store_true", default=False)
+    preset_info_parser.set_defaults(func=cmd_preset_info)
 
     # Edit subcommand
     edit_parser = subparsers.add_parser(
