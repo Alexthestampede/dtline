@@ -102,6 +102,47 @@ class Preset:
         return self.data.get("controls", [])
 
     @property
+    def num_frames(self) -> int:
+        return int(self.data.get("num_frames", self.data.get("numFrames", 1)))
+
+    @property
+    def width(self) -> int:
+        return int(self.data.get("width", 0))
+
+    @property
+    def height(self) -> int:
+        return int(self.data.get("height", 0))
+
+    @property
+    def hires_fix(self) -> bool:
+        return bool(self.data.get("hiresFix", self.data.get("hires_fix", False)))
+
+    @property
+    def hires_fix_start_width(self) -> int:
+        return int(self.data.get("hires_fix_start_width", self.data.get("hiresFixWidth", 0)))
+
+    @property
+    def hires_fix_start_height(self) -> int:
+        return int(self.data.get("hires_fix_start_height", self.data.get("hiresFixHeight", 0)))
+
+    @property
+    def hires_fix_strength(self) -> float:
+        return float(self.data.get("hires_fix_strength", self.data.get("hiresFixStrength", 0.7)))
+
+    @property
+    def stochastic_sampling_gamma(self) -> float:
+        return float(self.data.get("stochastic_sampling_gamma", self.data.get("stochasticSamplingGamma", 0.3)))
+
+    @property
+    def compression_artifacts(self) -> str:
+        # Returns the string name; client converts to int enum
+        return self.data.get("compression_artifacts", self.data.get("compressionArtifacts", "disabled"))
+
+    @property
+    def compression_artifacts_quality(self) -> float:
+        return float(self.data.get("compression_artifacts_quality", self.data.get("compressionArtifactsQuality", 43.1)))
+
+    @property
     def prompt_expander(self) -> str:
         return self.data.get("prompt_expander_system", "")
 
@@ -121,6 +162,14 @@ class Preset:
             "loras": self.loras,
             "controls": self.controls,
             "prompt_expander": self.prompt_expander,
+            "num_frames": self.num_frames,
+            "hires_fix": self.hires_fix,
+            "hires_fix_start_width": self.hires_fix_start_width,
+            "hires_fix_start_height": self.hires_fix_start_height,
+            "hires_fix_strength": self.hires_fix_strength,
+            "stochastic_sampling_gamma": self.stochastic_sampling_gamma,
+            "compression_artifacts": self.compression_artifacts,
+            "compression_artifacts_quality": self.compression_artifacts_quality,
         }
 
 

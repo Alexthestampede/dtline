@@ -29,6 +29,30 @@ from .errors import (
     image_not_found,
     server_busy,
 )
+
+
+def _decode_audio_blob(data: bytes) -> bytes:
+    """Decode one audio chunk into contiguous float32 bytes.
+
+    Video-model audio responses use the same CCV tensor wrapper as frames:
+    a 68-byte header followed by fpzip-compressed float32. If the blob has
+    that header, return the decompressed float32 bytes; otherwise return the
+    bytes unchanged (already raw PCM/WAV).
+    """
+    import struct
+    import numpy as np
+
+    if len(data) < 68:
+        return data
+
+    header = struct.unpack_from("<32I", data, 0)
+    if header[0] != 1012247:  # MAGIC_COMPRESSED
+        return data
+
+    import fpzip
+
+    f32 = fpzip.decompress(data[68:], order="C")
+    return f32.astype(np.float32).tobytes()
 from .presets import PresetManager, SAMPLER_NAME_TO_ID
 
 
@@ -232,12 +256,22 @@ class DtlineClient:
         hires_fix_start_width: int = 0,
         hires_fix_start_height: int = 0,
         hires_fix_strength: float = 0.7,
+        num_frames: int = 1,
+        stochastic_sampling_gamma: float = 0.3,
+        compression_artifacts: int = 0,
+        compression_artifacts_quality: float = 43.1,
         progress_callback: Callable[[str, int], None] | None = None,
         verbose: bool = False,
         output_dir: str | None = None,
     ) -> tuple[list[Path], dict]:
         if seed is None:
             seed = random.randint(0, 2**32 - 1)
+
+        # Validate video frame range (Draw Things: 8+1=9 up to 257 frames)
+        if num_frames > 1 and not (9 <= num_frames <= 257):
+            raise invalid_config(
+                f"num_frames must be 9-257 for video generation (got {num_frames})"
+            )
 
         model_filename = self._resolve_model_name(model)
 
@@ -267,7 +301,12 @@ class DtlineClient:
             loras=lora_configs,
             batch_count=1,
             batch_size=1,
+            num_frames=num_frames,
+            stochastic_sampling_gamma=stochastic_sampling_gamma,
         )
+        if compression_artifacts:
+            config.compression_artifacts = compression_artifacts
+            config.compression_artifacts_quality = compression_artifacts_quality
 
         # SDXL conditioning: only set original/target dimensions for SDXL models (latent_size=128)
         latent_size = self._get_model_latent_size(model_filename)
@@ -302,32 +341,84 @@ class DtlineClient:
                 if progress_callback:
                     progress_callback(stage, step)
 
-            generated_images = client.generate_image(
-                prompt=prompt,
-                config=config,
-                negative_prompt=negative_prompt,
-                input_image=input_image,
-                mask_image=mask_image,
-                progress_callback=progress_wrapper,
-            )
+            is_video = num_frames > 1
+
+            if is_video:
+                result = client.generate_media(
+                    prompt=prompt,
+                    config=config,
+                    negative_prompt=negative_prompt,
+                    input_image=input_image,
+                    mask_image=mask_image,
+                    progress_callback=progress_wrapper,
+                )
+                generated_images = result.images
+                # Audio chunks arrive as CCV tensor blobs (68-byte header +
+                # fpzip payload); decode each before concatenating.
+                if result.audio:
+                    decoded = [_decode_audio_blob(chunk) for chunk in result.audio]
+                    generated_audio = b"".join(decoded) if decoded else None
+                else:
+                    generated_audio = None
+            else:
+                generated_images = client.generate_image(
+                    prompt=prompt,
+                    config=config,
+                    negative_prompt=negative_prompt,
+                    input_image=input_image,
+                    mask_image=mask_image,
+                    progress_callback=progress_wrapper,
+                )
+                generated_audio = None
 
             tracker.finish()
 
             if not generated_images:
                 raise generation_error("No images were returned from the server")
 
-            output_paths = []
-            for i, image_data in enumerate(generated_images):
-                buffer = StringIO()
-                with redirect_stdout(buffer), redirect_stderr(buffer):
-                    pil_img = tensor_to_pil(image_data)
-                out_dir = Path(output_dir) if output_dir else Path("outputs")
-                out_dir.mkdir(parents=True, exist_ok=True)
-                timestamp = time.strftime("%Y%m%d_%H%M%S")
-                filename = f"dtline_{timestamp}_{seed}_{i + 1}.png"
+            out_dir = Path(output_dir) if output_dir else Path("outputs")
+            out_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+
+            if is_video:
+                # Decode tensor frames to PNG bytes first (imageio.imread can't
+                # read raw CCV tensor chunks; it needs encoded images)
+                import io as _io
+
+                frame_pngs = []
+                for image_data in generated_images:
+                    buffer = StringIO()
+                    with redirect_stdout(buffer), redirect_stderr(buffer):
+                        pil_img = tensor_to_pil(image_data)
+                    buf = _io.BytesIO()
+                    if pil_img.mode != "RGB":
+                        pil_img = pil_img.convert("RGB")
+                    pil_img.save(buf, "PNG")
+                    frame_pngs.append(buf.getvalue())
+
+                # LTX video models output at a fixed 25 fps
+                is_ltx = "ltx" in model_filename.lower()
+                actual_fps = 25 if is_ltx else 24
+
+                filename = f"dtline_video_{timestamp}_{seed}.mp4"
                 filepath = out_dir / filename
-                pil_img.save(filepath, "PNG")
-                output_paths.append(filepath)
+                client.save_video(
+                    frames=frame_pngs,
+                    output_path=str(filepath),
+                    fps=actual_fps,
+                    audio=generated_audio,
+                )
+                output_paths = [filepath]
+            else:
+                output_paths = []
+                for i, image_data in enumerate(generated_images):
+                    buffer = StringIO()
+                    with redirect_stdout(buffer), redirect_stderr(buffer):
+                        pil_img = tensor_to_pil(image_data)
+                    filename = f"dtline_{timestamp}_{seed}_{i + 1}.png"
+                    filepath = out_dir / filename
+                    pil_img.save(filepath, "PNG")
+                    output_paths.append(filepath)
 
             metadata = {
                 "model": model,
@@ -341,6 +432,11 @@ class DtlineClient:
                 "prompt": prompt,
                 "negative_prompt": negative_prompt,
             }
+            if is_video:
+                metadata["num_frames"] = num_frames
+                metadata["video"] = str(output_paths[0])
+                if generated_audio:
+                    metadata["audio"] = True
 
             return output_paths, metadata
 

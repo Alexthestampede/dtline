@@ -6,6 +6,7 @@ Practical code examples for all major features of the Draw Things gRPC Python cl
 
 - [Text-to-Image Generation](#text-to-image-generation)
 - [Edit and Kontext Models](#edit-and-kontext-models)
+- [Reference Images / Moodboard](#reference-images--moodboard)
 - [Inpainting](#inpainting)
 - [ControlNet](#controlnet)
 - [LoRA Models](#lora-models)
@@ -15,7 +16,7 @@ Practical code examples for all major features of the Draw Things gRPC Python cl
   - [Separate Text Encoders](#separate-text-encoders)
   - [TeaCache Acceleration](#teacache-acceleration)
   - [Tiled Diffusion and Decoding](#tiled-diffusion-and-decoding)
-  - [Video Generation (SVD)](#video-generation-svd)
+  - [Video Generation (SVD / LTX 2.3)](#video-generation-svd--ltx-23)
   - [Stage 2 Models](#stage-2-models)
   - [Causal Inference](#causal-inference)
 - [Model Discovery](#model-discovery)
@@ -128,6 +129,67 @@ with DrawThingsClient("server.example.com:7859", insecure=False, verify_ssl=Fals
         config=config,
     )
     client.save_images(images, output_dir="output", prefix="cat_wizard")
+```
+
+---
+
+## Reference Images / Moodboard
+
+Edit models (FLUX.2 Klein, etc.) can use **multiple reference images** for composition. Each reference is VAE-encoded as visual tokens and fed to the model. This lets you prompt combinations like "the person from image 3, wearing the clothes from image 2, on the beach from image 1".
+
+### Multiple References for Edit Models
+
+```python
+from drawthings_client import DrawThingsClient, ImageGenerationConfig, ReferenceImage
+
+config = ImageGenerationConfig(
+    model="flux_2_klein_4b_q6p.ckpt",
+    steps=20,
+    width=1024,
+    height=1024,
+    cfg_scale=1.0,
+    scheduler="Euler A Trailing",
+    strength=1.0,          # required for edit/kontext models
+    guidance_embed=3.5,
+    t5_text_encoder=True,
+)
+
+with DrawThingsClient("server.example.com:7859", insecure=False, verify_ssl=False) as client:
+    images = client.generate_image(
+        prompt="the person from reference 3, wearing the clothes from reference 2, on the beach from reference 1",
+        config=config,
+        reference_images=[
+            ReferenceImage(image="beach.jpg", weight=0.33, hint_type="shuffle"),
+            ReferenceImage(image="clothes.jpg", weight=0.33, hint_type="shuffle"),
+            ReferenceImage(image="person.jpg", weight=0.34, hint_type="shuffle"),
+        ],
+    )
+    client.save_images(images, output_dir="output", prefix="moodboard_edit")
+```
+
+### IP-Adapter Style References
+
+```python
+from drawthings_client import DrawThingsClient, ImageGenerationConfig, ReferenceImage
+
+config = ImageGenerationConfig(
+    model="realvisionxl_v40inpaint_q6p_q8p.ckpt",
+    steps=25,
+    width=1024,
+    height=1024,
+    cfg_scale=7.0,
+    scheduler="DPM++ 2M Karras",
+)
+
+with DrawThingsClient("server.example.com:7859", insecure=False, verify_ssl=False) as client:
+    images = client.generate_image(
+        prompt="a warrior in fantasy armor, dramatic lighting",
+        config=config,
+        reference_images=[
+            ReferenceImage(image="style_ref.jpg", weight=0.8, hint_type="ipadapterplus"),
+        ],
+    )
+    client.save_images(images, output_dir="output", prefix="ipadapter_style")
 ```
 
 ---
@@ -814,6 +876,51 @@ with DrawThingsClient("server.example.com:7859", insecure=False, verify_ssl=Fals
     # Returns individual frame tensors; assemble into video externally
     client.save_images(images, output_dir="output/frames", prefix="frame")
 ```
+
+### Video Generation (LTX 2.3 with Audio)
+
+LTX 2.3 generates video from text prompts and returns synchronized stereo audio. Use `generate_media()` to capture both frames and audio, then `save_video()` to mux them into a playable file.
+
+```python
+from drawthings_client import DrawThingsClient, ImageGenerationConfig
+
+config = ImageGenerationConfig(
+    model="ltx_2_3_540p_q8p.ckpt",  # or 720p variant
+    steps=30,
+    width=960,              # 540p (540 * 16 / 9)
+    height=540,
+    cfg_scale=1.0,
+    scheduler="Euler A",
+
+    # Video parameters
+    num_frames=121,         # LTX 2.3 supports up to 257 frames
+    fps_id=24,
+    motion_bucket_id=127,
+)
+
+with DrawThingsClient("server.example.com:7859", insecure=False, verify_ssl=False) as client:
+    result = client.generate_media(
+        prompt="a cinematic drone shot flying over a tropical beach at sunset",
+        config=config,
+    )
+
+    # Save individual frames
+    client.save_images(result.images, output_dir="output/ltx_frames", prefix="frame")
+
+    # Save muxed video with audio (requires imageio + imageio-ffmpeg)
+    if result.images:
+        client.save_video(
+            result.images,
+            output_path="output/ltx_video.mp4",
+            fps=24,
+            audio=b"".join(result.audio) if result.audio else None,
+        )
+```
+
+**Notes:**
+- LTX 2.3 VAE uses different latent ratios than image models; the server internally computes `startScaleFactor = 32` and doubles the scale. Pass pixel dimensions that are multiples of 64 (e.g., 540p, 720p) to avoid reshape crashes.
+- `generate_image()` will also return LTX frames but silently discards the audio track. Use `generate_media()` for full audio-video capture.
+- The audio bytes are raw stereo float32 PCM at 44.1 kHz. `save_video()` handles the FFmpeg muxing for you.
 
 ### Stage 2 Models
 

@@ -54,7 +54,7 @@ def generate_with_references(
     )
 
     print(f"Connecting to {server}...")
-    with DrawThingsClient(server, insecure=True, verify_ssl=False) as client:
+    with DrawThingsClient(server, insecure=False, verify_ssl=False) as client:
         print(f"Generating with prompt: {prompt}")
         print(f"Using {len(reference_images)} reference image(s)")
 

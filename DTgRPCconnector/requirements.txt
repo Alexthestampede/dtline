@@ -13,3 +13,7 @@ numpy>=1.24.0
 
 # Tensor compression
 fpzip>=1.2.0
+
+# Optional video assembly (LTX 2.3 with audio)
+imageio>=2.34.0
+imageio-ffmpeg>=0.4.9

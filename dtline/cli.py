@@ -33,8 +33,16 @@ def _add_json_flag(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _compression_to_int(value) -> int:
+    """Convert compression artifacts setting to enum int. Disabled=0, H264=1, H265=2, Jpeg=3."""
+    if isinstance(value, int):
+        return value
+    mapping = {"disabled": 0, "h264": 1, "h265": 2, "jpeg": 3}
+    return mapping.get(str(value).lower(), 0)
+
+
 def _resolve_aspect_ratio(
-    args: argparse.Namespace, config_loader: ConfigLoader
+    args: argparse.Namespace, config_loader: ConfigLoader, preset_dims: tuple[int, int] | None = None
 ) -> tuple[int, int]:
     pm = PresetManager()
     ar = (
@@ -51,6 +59,8 @@ def _resolve_aspect_ratio(
         and args.height
     ):
         return args.width, args.height
+    if preset_dims:
+        return preset_dims
     default_config = config_loader.load()
     ar = pm.get_aspect_ratio(default_config.size)
     if ar:
@@ -102,7 +112,16 @@ def cmd_generate(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
         seed_mode = preset.seed_mode
         tea_cache = preset.tea_cache
         base_res = preset.base_resolution
-        
+        hires_fix = preset.hires_fix
+        hires_fix_start_width = preset.hires_fix_start_width
+        hires_fix_start_height = preset.hires_fix_start_height
+        hires_fix_strength = preset.hires_fix_strength
+        num_frames = args.num_frames if args.num_frames else preset.num_frames
+        stochastic_gamma = preset.stochastic_sampling_gamma
+        compression_artifacts = _compression_to_int(preset.compression_artifacts)
+        compression_quality = preset.compression_artifacts_quality
+        preset_dims = (preset.width, preset.height) if preset.width and preset.height else None
+
         # Load LoRAs from preset
         preset_loras = preset.loras
     else:
@@ -116,8 +135,17 @@ def cmd_generate(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
         base_res = 1024
         clip_skip = args.clip_skip if args.clip_skip is not None else 1
         preset_loras = []
+        hires_fix = False
+        hires_fix_start_width = 0
+        hires_fix_start_height = 0
+        hires_fix_strength = 0.7
+        num_frames = args.num_frames if args.num_frames else 1
+        stochastic_gamma = 0.3
+        compression_artifacts = 0
+        compression_quality = 43.1
+        preset_dims = None
 
-    width, height = _resolve_aspect_ratio(args, config_loader)
+    width, height = _resolve_aspect_ratio(args, config_loader, preset_dims)
 
     negative_prompt = ""
     if args.negative_prompt:
@@ -188,6 +216,14 @@ def cmd_generate(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
             clip_skip=clip_skip,
             seed_mode=seed_mode,
             tea_cache=tea_cache,
+            hires_fix=hires_fix,
+            hires_fix_start_width=hires_fix_start_width,
+            hires_fix_start_height=hires_fix_start_height,
+            hires_fix_strength=hires_fix_strength,
+            num_frames=num_frames,
+            stochastic_sampling_gamma=stochastic_gamma,
+            compression_artifacts=compression_artifacts,
+            compression_artifacts_quality=compression_quality,
             verbose=args.verbose,
             output_dir=output_dir,
         )
@@ -373,7 +409,8 @@ def cmd_preset_info(args: argparse.Namespace, config_loader: ConfigLoader) -> in
         print(f"CLIP Skip: {preset.clip_skip}")
         if preset.data.get("prompt_expander_system"):
             print(f"\nPrompt Expander System (for AI agents):")
-            print(f"  Use this as the system prompt when calling Ernie.")
+            print(f"  This model requires prompts in its expanded format.")
+            print(f"  Run with --json and read .prompt_expander for the full system prompt.")
             print(f"  Length: ~{len(preset.data['prompt_expander_system'])} chars")
         if preset.data.get("notes"):
             print(f"\nNotes: {preset.data['notes']}")
@@ -760,6 +797,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     gen_parser.add_argument("--output", help="Output filename")
     gen_parser.add_argument("--output-dir", help="Output directory")
+    gen_parser.add_argument(
+        "--num-frames",
+        type=int,
+        help="Number of video frames, 9-257 (video models like LTX 2.3; preset may set this)",
+    )
     gen_parser.add_argument("--insecure", action="store_true", help="Disable TLS")
     gen_parser.add_argument(
         "--verify-ssl", action="store_true", help="Verify TLS certificates"

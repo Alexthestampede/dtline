@@ -24,9 +24,10 @@ from drawthings_client import (
     DrawThingsClient,
     ImageGenerationConfig,
     ReferenceImage,
+    GenerationResult,
     StreamingProgressHandler,
     quick_generate,
-    SCHEDULER_MAP,
+    SCHEDULER_MAP
 )
 
 __version__ = "1.0.0"
@@ -35,7 +36,8 @@ __all__ = [
     "DrawThingsClient",
     "ImageGenerationConfig",
     "ReferenceImage",
+    "GenerationResult",
     "StreamingProgressHandler",
     "quick_generate",
-    "SCHEDULER_MAP",
+    "SCHEDULER_MAP"
 ]

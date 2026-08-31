@@ -75,3 +75,36 @@ tests/                      # Integration tests (connect to live server)
 3. **TeaCache**: ~20-30% speedup for FLUX at `tea_cache_threshold=0.06`
 4. **Tiled diffusion**: Required for images > 1024×1024 to avoid OOM
 5. **fpzip required**: `pip install fpzip` or decoded images will raise an error
+
+## Reference Images / Moodboard Support
+
+Edit models (FLUX.2 Klein, etc.) can use multiple reference images for composition:
+
+```python
+from drawthings_client import ReferenceImage
+
+images = client.generate_image(
+    prompt="the person from reference 3, wearing clothes from reference 2, on the beach from reference 1",
+    config=config,
+    reference_images=[
+        ReferenceImage(image="beach.jpg", weight=0.33, hint_type="shuffle"),
+        ReferenceImage(image="clothes.jpg", weight=0.33, hint_type="shuffle"),
+        ReferenceImage(image="person.jpg", weight=0.34, hint_type="shuffle"),
+    ]
+)
+```
+
+### Hint Types
+
+| Type | Use Case |
+|------|----------|
+| `"shuffle"` | Edit/kontext models (FLUX.2 Klein) — images are VAE-encoded as visual tokens |
+| `"ipadapterplus"` | IP-Adapter style conditioning |
+| `"ipadapterfull"` | Full IP-Adapter |
+| `"depth"`, `"canny"`, etc. | ControlNet preprocessor hints |
+
+For edit models, use `"shuffle"` with `strength=1.0` in the config.
+
+## Video Generation Notes
+
+The server returns `audio` data alongside images for video generation (LTX, etc.). This client currently ignores audio and only extracts image frames. To handle video+audio, the `GenerateImage` response would need to parse the audio field from `ImageGenerationResponse`.

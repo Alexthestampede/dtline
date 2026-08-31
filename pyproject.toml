@@ -35,6 +35,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = []
+video = [
+    "imageio>=2.34.0",
+    "imageio-ffmpeg>=0.4.9",
+]
 
 [project.scripts]
 dtline = "dtline.cli:main"
