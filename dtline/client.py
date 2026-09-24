@@ -97,6 +97,7 @@ class DtlineClient:
         self._client: DrawThingsClient | None = None
         self._preset_manager = PresetManager()
         self._model_cache: dict[str, list[dict]] | None = None
+        self._lora_cache: list[dict] | None = None
 
     def _fetch_model_metadata(self) -> dict[str, list[dict]]:
         if self._model_cache is not None:
@@ -114,6 +115,27 @@ class DtlineClient:
             self._model_cache = []
         return self._model_cache
 
+    def _fetch_lora_metadata(self) -> list[dict]:
+        """Fetch LoRA metadata from override.loras (separate from model metadata)."""
+        if self._lora_cache is not None:
+            return self._lora_cache
+        try:
+            import json
+
+            client = self._get_client()
+            response = client.echo("list_files")
+            if response.HasField("override"):
+                self._lora_cache = (
+                    json.loads(response.override.loras)
+                    if response.override.loras
+                    else []
+                )
+            else:
+                self._lora_cache = []
+        except Exception:
+            self._lora_cache = []
+        return self._lora_cache
+
     def _resolve_model_name(self, model_name: str) -> str:
         metadata = self._fetch_model_metadata()
         for m in metadata:
@@ -122,13 +144,24 @@ class DtlineClient:
         return model_name
 
     def _resolve_lora_name(self, lora_name: str) -> str:
-        """Resolve LoRA name to filename, similar to models."""
-        metadata = self._fetch_model_metadata()
-        for m in metadata:
-            # Check if this is a LoRA entry (has lora in filename or is in loras list)
-            if m.get("file", "").endswith(('.ckpt', '.safetensors')) and 'lora' in m.get("file", "").lower():
-                if m.get("name") == lora_name or m.get("file") == lora_name:
-                    return m.get("file", lora_name)
+        """Resolve LoRA display name to filename.
+
+        LoRA metadata lives in override.loras (separate from override.models).
+        Names that already end in .ckpt/.safetensors are passed through as
+        direct filenames. Unknown names are passed through with a warning:
+        the server drops unrecognized LoRAs silently.
+        """
+        loras = self._fetch_lora_metadata()
+        for l in loras:
+            if l.get("name") == lora_name or l.get("file") == lora_name:
+                return l.get("file", lora_name)
+        if not lora_name.endswith((".ckpt", ".safetensors")):
+            print(
+                f"WARNING: LoRA '{lora_name}' not found on server — unknown LoRA "
+                f"names are dropped silently by the server. "
+                f"Check `dtline list-models` for exact filenames.",
+                file=sys.stderr,
+            )
         return lora_name
 
     def _get_model_latent_size(self, model_filename: str) -> int:
