@@ -661,9 +661,6 @@ class DrawThingsClient:
                     private_key=None,
                     certificate_chain=None,
                 )
-                # Draw Things gRPC server certs are self-signed for "localhost".
-                # When connecting by IP (e.g. 192.168.2.150:7859), tell gRPC to
-                # expect that peer name instead of the IP address.
                 options.extend(
                     [
                         ("grpc.ssl_target_name_override", "localhost"),
@@ -921,6 +918,7 @@ class DrawThingsClient:
         generated_images = []
         generated_audio = []
         image_chunks = []
+        audio_chunks = []
 
         try:
             for response in self.stub.GenerateImage(request):
@@ -962,9 +960,16 @@ class DrawThingsClient:
                 if response.HasField("previewImage") and preview_callback:
                     preview_callback(response.previewImage)
 
-                # Collect generated audio (e.g. LTX video models)
+                # Handle chunked audio responses (e.g. LTX video models).
+                # Audio arrives as fpzip-compressed CCV tensors, chunked exactly
+                # like images: accumulate on MORE_CHUNKS, decode on LAST_CHUNK.
                 if response.generatedAudio:
-                    generated_audio.extend(response.generatedAudio)
+                    audio_chunks.extend(response.generatedAudio)
+
+                    if response.chunkState == imageService_pb2.LAST_CHUNK:
+                        combined_audio = b"".join(audio_chunks)
+                        generated_audio.append(combined_audio)
+                        audio_chunks = []
 
                 # Handle chunked responses
                 if response.generatedImages:
@@ -1079,187 +1084,13 @@ class DrawThingsClient:
 
         return saved_files
 
-    @staticmethod
-    def _sanitize_audio_for_mux(audio: bytes, audio_sample_rate: int, video_duration: float):
-        """Normalize LTX / Draw Things audio bytes into clean float32 PCM.
-
-        The gRPC audio payload format is ambiguous across server versions and
-        presets: some builds return a WAV container, others return raw s16le or
-        f32le PCM. In addition, LTX 2.3's AudioVAE can emit NaN/Inf samples that
-        break AAC encoding. This helper detects the container (if any), extracts
-        PCM, replaces any invalid samples with silence, clamps to [-1, 1], and
-        trims/pads to the target duration.
-
-        Returns a tuple (clean_float32_bytes, was_sanitized). If the input is
-        empty or all silence, returns (None, False).
-        """
-        import struct
-        import numpy as np
-
-        if not audio:
-            return None, False
-
-        def _decode_wav(data: bytes):
-            """Parse a RIFF/WAVE container. Returns (samples, rate, channels) or (None, ...)."""
-            if not (data[:4] == b"RIFF" and data[8:12] == b"WAVE"):
-                return None, audio_sample_rate, 2
-            pos = 12
-            wav_format = None
-            wav_channels = 2
-            wav_rate = audio_sample_rate
-            wav_bits = 16
-            pcm_data = None
-            while pos + 8 <= len(data):
-                chunk_id = data[pos : pos + 4]
-                chunk_size = struct.unpack("<I", data[pos + 4 : pos + 8])[0]
-                chunk_data = data[pos + 8 : pos + 8 + chunk_size]
-                if chunk_id == b"fmt ":
-                    wav_format = struct.unpack("<H", chunk_data[0:2])[0]
-                    wav_channels = struct.unpack("<H", chunk_data[2:4])[0]
-                    wav_rate = struct.unpack("<I", chunk_data[4:8])[0]
-                    wav_bits = struct.unpack("<H", chunk_data[14:16])[0]
-                elif chunk_id == b"data":
-                    pcm_data = chunk_data
-                    break
-                pos += 8 + chunk_size + (chunk_size & 1)
-
-            if pcm_data is None:
-                return None, wav_rate, wav_channels
-
-            if wav_format == 3:  # IEEE float
-                byte_len = (len(pcm_data) // 4) * 4
-                samples = np.frombuffer(pcm_data[:byte_len], dtype=np.float32).copy()
-            elif wav_format == 1:  # integer PCM
-                if wav_bits == 16:
-                    byte_len = (len(pcm_data) // 2) * 2
-                    samples = np.frombuffer(pcm_data[:byte_len], dtype=np.int16).astype(np.float32) / 32768.0
-                elif wav_bits == 24:
-                    byte_len = (len(pcm_data) // 3) * 3
-                    arr = np.frombuffer(pcm_data[:byte_len], dtype=np.uint8).reshape(-1, 3)
-                    ints = (arr[:, 0].astype(np.int32)
-                            | (arr[:, 1].astype(np.int32) << 8)
-                            | (arr[:, 2].astype(np.int32) << 16))
-                    ints = np.where(ints >= 0x800000, ints - 0x1000000, ints)
-                    samples = ints.astype(np.float32) / 8388608.0
-                elif wav_bits == 32:
-                    byte_len = (len(pcm_data) // 4) * 4
-                    samples = np.frombuffer(pcm_data[:byte_len], dtype=np.int32).astype(np.float32) / 2147483648.0
-                else:
-                    return None, wav_rate, wav_channels
-            else:
-                return None, wav_rate, wav_channels
-            return samples, wav_rate, wav_channels
-
-        def _decode_raw(data: bytes, fmt: str):
-            """Decode raw little-endian PCM. fmt: 's16le'|'s32le'|'f32le'"""
-            if fmt == "s16le":
-                byte_len = (len(data) // 2) * 2
-                return np.frombuffer(data[:byte_len], dtype=np.int16).astype(np.float32) / 32768.0
-            if fmt == "s32le":
-                byte_len = (len(data) // 4) * 4
-                return np.frombuffer(data[:byte_len], dtype=np.int32).astype(np.float32) / 2147483648.0
-            if fmt == "f32le":
-                byte_len = (len(data) // 4) * 4
-                return np.frombuffer(data[:byte_len], dtype=np.float32).copy()
-            return None
-
-        def _to_stereo(samples, channels):
-            if channels == 1:
-                return np.repeat(samples, 2)
-            if channels >= 2:
-                n_frames = samples.size // channels
-                if n_frames == 0:
-                    return np.repeat(samples, 2)
-                return samples[: n_frames * channels].reshape(n_frames, channels)[:, :2].reshape(-1)
-            return samples
-
-        def _score(samples):
-            """Heuristic: prefer interpretations with few invalid/clip samples and a
-            moderate peak. Lower score is better."""
-            if samples is None or samples.size == 0:
-                return float("inf")
-            finite = np.isfinite(samples)
-            invalid_ratio = 1.0 - finite.mean()
-            valid = samples[finite]
-            if valid.size == 0:
-                return float("inf")
-            peak = np.max(np.abs(valid))
-            # Heavy penalty for invalid values and for values wildly outside [-1, 1]
-            clip_ratio = ((valid > 1.0) | (valid < -1.0)).mean()
-            extreme_ratio = ((valid > 0.99) | (valid < -0.99)).mean()
-            # Favor peaks in the normal audio range (~0.01 to 1.0)
-            peak_penalty = 0.0
-            if peak < 1e-6:
-                peak_penalty = 10.0
-            elif peak > 10.0:
-                peak_penalty = 5.0
-            # Penalize interpretations that map most samples to the extreme edges;
-            # this usually indicates a format mismatch (e.g. s16le read as f32le).
-            return invalid_ratio * 100 + clip_ratio * 50 + extreme_ratio * 20 + peak_penalty
-
-        # Try WAV first
-        candidates = []
-        wav_samples, wav_rate, wav_channels = _decode_wav(audio)
-        if wav_samples is not None:
-            candidates.append((wav_rate, wav_channels, wav_samples, "wav"))
-
-        # Try raw formats. The caller should have already decoded any CCV tensor
-        # wrapper; at this point we expect float32 PCM from decoded audio.
-        for fmt, channels in [("f32le", 2), ("f32le", 1), ("s16le", 2), ("s16le", 1)]:
-            samples = _decode_raw(audio, fmt)
-            if samples is not None:
-                candidates.append((audio_sample_rate, channels, samples, fmt))
-
-        if not candidates:
-            return None, False
-
-        # Pick the best interpretation by heuristic
-        best = min(
-            (
-                (rate, ch, _to_stereo(samples, ch), label)
-                for rate, ch, samples, label in candidates
-            ),
-            key=lambda item: _score(item[2]),
-        )
-        audio_sample_rate, _, samples, detected_format = best
-        print(f"Audio format detected: {detected_format}, sample_rate={audio_sample_rate}, "
-              f"samples={samples.size}, peak={np.max(np.abs(samples)):.4f}")
-
-        # Replace NaN/Inf and clamp to valid range
-        had_invalid = not np.isfinite(samples).all()
-        samples = np.nan_to_num(samples, nan=0.0, posinf=0.0, neginf=0.0)
-        samples = np.clip(samples, -1.0, 1.0)
-
-        # Trim/pad to match video duration
-        expected_samples = int(video_duration * audio_sample_rate * 2)
-        if expected_samples > 0:
-            if samples.size > expected_samples:
-                samples = samples[:expected_samples]
-            elif samples.size < expected_samples:
-                samples = np.pad(samples, (0, expected_samples - samples.size))
-
-        # ffmpeg's f32le decoder expects complete stereo frames (8 bytes each),
-        # so ensure the final sample count is even.
-        if samples.size % 2 == 1:
-            samples = np.append(samples, 0.0)
-
-        # Only normalize if the signal is usefully non-silent but very quiet
-        peak = np.max(np.abs(samples))
-        if peak > 0 and peak < 0.001:
-            samples = samples / peak * 0.1
-
-        if peak == 0:
-            return None, had_invalid
-
-        return samples.astype(np.float32).tobytes(), had_invalid
-
     def save_video(
         self,
         frames: List[bytes],
         output_path: str,
         fps: int = 24,
-        audio: Optional[bytes] = None,
-        audio_sample_rate: int = 44100,
+        audio: Optional[List[bytes]] = None,
+        audio_sample_rate: int = 24000,
     ) -> str:
         """Assemble decoded video frames into a playable video file.
 
@@ -1267,11 +1098,15 @@ class DrawThingsClient:
         Falls back to frame-only output if imageio is unavailable.
 
         Args:
-            frames: List of decoded frame bytes (PNG or tensor chunks decoded by client)
+            frames: List of decoded frame bytes (PNG)
             output_path: Path for output video file (e.g. "output.mp4")
             fps: Frames per second
-            audio: Optional raw audio bytes (stereo, typically from LTX 2.3)
-            audio_sample_rate: Sample rate of the provided audio bytes
+            audio: Optional list of audio tensor chunks from GenerationResult.audio
+                   (fpzip-compressed CCV tensors, shape (channels, samples)).
+                   They are decoded to interleaved float32 PCM before muxing.
+                   Pass a single pre-decoded bytes object to skip decoding.
+            audio_sample_rate: Sample rate for the audio. 48000 for LTX 2.3,
+                   24000 for most other models (upstream ModelZoo default).
 
         Returns:
             Path to the saved video file
@@ -1290,47 +1125,76 @@ class DrawThingsClient:
                 writer.append_data(frame)
             writer.close()
 
-            # If audio is provided, try to mux it in
+            # If audio is provided, decode tensors and mux it in
             if audio:
                 try:
                     import imageio_ffmpeg
 
-                    video_duration = len(frames) / max(fps, 1)
-                    clean_audio, was_sanitized = self._sanitize_audio_for_mux(
-                        audio, audio_sample_rate, video_duration
-                    )
-                    if clean_audio is None:
-                        print("Warning: Audio is empty or silent after sanitization, skipping mux.")
-                    else:
-                        if was_sanitized:
-                            print("Warning: Sanitized invalid audio samples (NaN/Inf) before muxing.")
+                    # Each entry in GenerationResult.audio is one reassembled
+                    # fpzip-compressed CCV tensor (shape (channels, samples)),
+                    # matching the upstream client which decodes every
+                    # generatedAudio element individually. Decode each and
+                    # concatenate the interleaved float32 PCM. A single entry
+                    # that is not a tensor is passed through as raw PCM.
+                    from tensor_decoder import decode_audio_tensor
 
-                        temp_video = output.with_suffix(".temp" + output.suffix)
-                        output.rename(temp_video)
+                    pcm_parts = []
+                    n_channels = 2
+                    for entry in audio:
+                        try:
+                            pcm, n_channels, _ = decode_audio_tensor(entry)
+                            pcm_parts.append(pcm)
+                        except ValueError:
+                            pcm_parts.append(entry)
 
-                        ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
-                        cmd = [
-                            ffmpeg_path,
-                            "-y",
-                            "-i",
-                            str(temp_video),
-                            "-f",
-                            "f32le",
-                            "-ar",
-                            str(audio_sample_rate),
-                            "-ac",
-                            "2",
-                            "-i",
-                            "-",
-                            "-c:v",
-                            "copy",
-                            "-c:a",
-                            "aac",
-                            "-shortest",
-                            str(output),
-                        ]
-                        subprocess.run(cmd, input=clean_audio, check=True)
-                        temp_video.unlink(missing_ok=True)
+                    pcm_bytes = b"".join(pcm_parts)
+
+                    # LTX's AudioVAE can emit NaN/Inf or wildly out-of-range
+                    # samples that break AAC encoding. Sanitize before muxing:
+                    # replace invalid samples with silence, clamp to [-1, 1].
+                    try:
+                        import numpy as _np
+
+                        arr = _np.frombuffer(pcm_bytes, dtype=_np.float32).copy()
+                        if arr.size:
+                            had_invalid = not _np.isfinite(arr).all()
+                            arr = _np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+                            arr = _np.clip(arr, -1.0, 1.0)
+                            if had_invalid:
+                                print(
+                                    "Warning: Sanitized invalid audio samples "
+                                    "(NaN/Inf) before muxing."
+                                )
+                            pcm_bytes = arr.astype(_np.float32).tobytes()
+                    except Exception:
+                        pass  # If sanitization fails, attempt mux with raw PCM
+
+                    temp_video = output.with_suffix(".temp" + output.suffix)
+                    output.rename(temp_video)
+
+                    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+                    cmd = [
+                        ffmpeg_path,
+                        "-y",
+                        "-i",
+                        str(temp_video),
+                        "-f",
+                        "f32le",
+                        "-ar",
+                        str(audio_sample_rate),
+                        "-ac",
+                        str(n_channels),
+                        "-i",
+                        "-",
+                        "-c:v",
+                        "copy",
+                        "-c:a",
+                        "aac",
+                        "-shortest",
+                        str(output),
+                    ]
+                    subprocess.run(cmd, input=pcm_bytes, check=True)
+                    temp_video.unlink(missing_ok=True)
                 except Exception as e:
                     print(f"Warning: Could not mux audio: {e}")
                     # Keep frames-only video

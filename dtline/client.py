@@ -29,30 +29,6 @@ from .errors import (
     image_not_found,
     server_busy,
 )
-
-
-def _decode_audio_blob(data: bytes) -> bytes:
-    """Decode one audio chunk into contiguous float32 bytes.
-
-    Video-model audio responses use the same CCV tensor wrapper as frames:
-    a 68-byte header followed by fpzip-compressed float32. If the blob has
-    that header, return the decompressed float32 bytes; otherwise return the
-    bytes unchanged (already raw PCM/WAV).
-    """
-    import struct
-    import numpy as np
-
-    if len(data) < 68:
-        return data
-
-    header = struct.unpack_from("<32I", data, 0)
-    if header[0] != 1012247:  # MAGIC_COMPRESSED
-        return data
-
-    import fpzip
-
-    f32 = fpzip.decompress(data[68:], order="C")
-    return f32.astype(np.float32).tobytes()
 from .presets import PresetManager, SAMPLER_NAME_TO_ID
 
 
@@ -386,13 +362,9 @@ class DtlineClient:
                     progress_callback=progress_wrapper,
                 )
                 generated_images = result.images
-                # Audio chunks arrive as CCV tensor blobs (68-byte header +
-                # fpzip payload); decode each before concatenating.
-                if result.audio:
-                    decoded = [_decode_audio_blob(chunk) for chunk in result.audio]
-                    generated_audio = b"".join(decoded) if decoded else None
-                else:
-                    generated_audio = None
+                # Audio chunks are fpzip-compressed CCV tensors; save_video()
+                # decodes and sanitizes them itself.
+                generated_audio = list(result.audio) if result.audio else None
             else:
                 generated_images = client.generate_image(
                     prompt=prompt,
@@ -429,9 +401,10 @@ class DtlineClient:
                     pil_img.save(buf, "PNG")
                     frame_pngs.append(buf.getvalue())
 
-                # LTX video models output at a fixed 25 fps
+                # LTX video models output at a fixed 25 fps and 48 kHz audio
                 is_ltx = "ltx" in model_filename.lower()
                 actual_fps = 25 if is_ltx else 24
+                audio_sample_rate = 48000 if is_ltx else 24000
 
                 filename = f"dtline_video_{timestamp}_{seed}.mp4"
                 filepath = out_dir / filename
@@ -440,6 +413,7 @@ class DtlineClient:
                     output_path=str(filepath),
                     fps=actual_fps,
                     audio=generated_audio,
+                    audio_sample_rate=audio_sample_rate,
                 )
                 output_paths = [filepath]
             else:

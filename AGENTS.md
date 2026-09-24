@@ -114,8 +114,9 @@ dtline generate "prompt" --model "LTX-2.3 22B [distilled] 1.1 (6-bit)" --preset 
 Key video constraints:
 - **Frames: 9 to 257** (9 = 8 latent + 1; DT stops at 257). Use `--num-frames 9` for quick tests — the official preset default is 121 (slow)
 - **LTX outputs fixed 25 fps** regardless of settings
-- **Audio arrives as CCV tensor blobs** (68-byte header + fpzip float32), NOT raw PCM — must be decompressed before muxing; LTX's AudioVAE can emit NaN/Inf samples that break AAC encoding (DTgRPCconnector's `_sanitize_audio_for_mux` handles this)
-- Frames are also CCV tensors — decode with `tensor_to_pil()` before writing to video
+- **Audio arrives as fpzip-compressed CCV tensors** `(channels, samples)`, chunked like images — DTgRPCconnector's `save_video()` decodes them (`decode_audio_tensor`, channel-interleaved f32le) and sanitizes NaN/Inf from LTX's AudioVAE before AAC muxing
+- **Audio sample rate: 48000 Hz for LTX 2.3**, 24000 for most other video models
+- Frames are also CCV tensors — decoded with `tensor_to_pil()` before writing to video
 - Preset can also set explicit `width`/`height` (used when no --aspect-ratio/--width/--height given)
 
 ### Prompt Expander Models (Ernie, Ideogram 4)
