@@ -143,6 +143,10 @@ class Preset:
         return float(self.data.get("compression_artifacts_quality", self.data.get("compressionArtifactsQuality", 43.1)))
 
     @property
+    def expand_prompt_to_json(self) -> bool:
+        return bool(self.data.get("expandPromptToJson", self.data.get("expand_prompt_to_json", False)))
+
+    @property
     def prompt_expander(self) -> str:
         return self.data.get("prompt_expander_system", "")
 
@@ -170,6 +174,7 @@ class Preset:
             "stochastic_sampling_gamma": self.stochastic_sampling_gamma,
             "compression_artifacts": self.compression_artifacts,
             "compression_artifacts_quality": self.compression_artifacts_quality,
+            "expand_prompt_to_json": self.expand_prompt_to_json,
         }
 
 

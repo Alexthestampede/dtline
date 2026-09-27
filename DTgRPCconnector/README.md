@@ -422,6 +422,12 @@ config = ImageGenerationConfig(
     num_frames=14,
     compression_artifacts=0,        # CompressionMethod: Disabled=0, H264=1, H265=2, Jpeg=3
     compression_artifacts_quality=43.1,
+    color_calibration=0,            # ColorCalibration: Disabled=0, Lab=1
+    expand_prompt_to_json=False,
+    shift_for_audio=3.0,            # LTX audio shift
+    uses_sol_attention=False,       # Sol attention (FLUX.2 Klein etc.)
+    sol_attention_start=2,
+    sol_attention_tau=0.5,
 
     # --- Misc ---
     zero_negative_prompt=False,

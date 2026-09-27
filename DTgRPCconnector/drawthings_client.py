@@ -333,6 +333,16 @@ class ImageGenerationConfig:
     num_frames: int = 14
     compression_artifacts: int = 0  # CompressionMethod: Disabled=0, H264=1, H265=2, Jpeg=3
     compression_artifacts_quality: float = 43.1
+    # Color calibration (newer server builds)
+    color_calibration: int = 0  # ColorCalibration: Disabled=0, Lab=1
+    # Prompt expansion
+    expand_prompt_to_json: bool = False
+    # LTX audio
+    shift_for_audio: float = 3.0
+    # Sol attention (FLUX.2 Klein etc.)
+    uses_sol_attention: bool = False
+    sol_attention_start: int = 2
+    sol_attention_tau: float = 0.5
     # LoRA and ControlNet
     loras: List[LoRAConfig] = field(default_factory=list)
     controls: List[ControlNetConfig] = field(default_factory=list)
@@ -589,6 +599,20 @@ class ImageGenerationConfig:
         GenerationConfiguration.AddCompressionArtifactsQuality(
             builder, self.compression_artifacts_quality
         )
+        # Color calibration / prompt expansion / audio shift (newer server builds)
+        GenerationConfiguration.AddColorCalibration(builder, self.color_calibration)
+        GenerationConfiguration.AddExpandPromptToJson(
+            builder, self.expand_prompt_to_json
+        )
+        GenerationConfiguration.AddShiftForAudio(builder, self.shift_for_audio)
+        # Sol attention
+        GenerationConfiguration.AddUsesSolAttention(
+            builder, self.uses_sol_attention
+        )
+        GenerationConfiguration.AddSolAttentionStart(
+            builder, self.sol_attention_start
+        )
+        GenerationConfiguration.AddSolAttentionTau(builder, self.sol_attention_tau)
 
         config = GenerationConfiguration.End(builder)
         builder.Finish(config)

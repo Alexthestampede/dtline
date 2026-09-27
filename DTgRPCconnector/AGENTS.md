@@ -80,6 +80,15 @@ tests/                      # Integration tests (connect to live server)
 draw-things-community/     # Upstream clone (reference for server internals)
 ```
 
+## Syncing With Upstream
+
+The `draw-things-community/` clone is the reference for server internals. When a pull adds new `config.fbs` fields:
+1. Append `GenerationConfigurationAdd...` slots to `GenerationConfiguration.py` (slots are sequential; do NOT renumber existing ones)
+2. Add matching fields + `Add...` calls to `ImageGenerationConfig.to_flatbuffer()`
+3. Regenerate protobuf only if `imageService.proto` changed (it rarely does)
+
+Last sync (2026-09): config.fbs added `color_calibration`, `expand_prompt_to_json`, `shift_for_audio`, `uses_sol_attention`, `sol_attention_start`, `sol_attention_tau` (slots 86-91).
+
 ## Important Constraints from README
 
 1. **Kontext/edit models**: `strength=1.0`, input dims = output dims, uncompressed float16

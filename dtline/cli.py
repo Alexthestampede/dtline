@@ -6,6 +6,7 @@ import os
 import json
 from pathlib import Path
 
+from . import __version__
 from .client import DtlineClient
 from .config import ConfigLoader
 from .presets import PresetManager
@@ -120,6 +121,7 @@ def cmd_generate(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
         stochastic_gamma = preset.stochastic_sampling_gamma
         compression_artifacts = _compression_to_int(preset.compression_artifacts)
         compression_quality = preset.compression_artifacts_quality
+        expand_prompt_to_json = preset.expand_prompt_to_json
         preset_dims = (preset.width, preset.height) if preset.width and preset.height else None
 
         # Load LoRAs from preset
@@ -143,6 +145,7 @@ def cmd_generate(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
         stochastic_gamma = 0.3
         compression_artifacts = 0
         compression_quality = 43.1
+        expand_prompt_to_json = False
         preset_dims = None
 
     width, height = _resolve_aspect_ratio(args, config_loader, preset_dims)
@@ -224,6 +227,7 @@ def cmd_generate(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
             stochastic_sampling_gamma=stochastic_gamma,
             compression_artifacts=compression_artifacts,
             compression_artifacts_quality=compression_quality,
+            expand_prompt_to_json=expand_prompt_to_json,
             verbose=args.verbose,
             output_dir=output_dir,
         )
@@ -765,7 +769,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="dtline",
         description="AI Agent Image Generation CLI for Draw Things gRPC Server",
     )
-    parser.add_argument("--version", action="version", version="%(prog)s 1.2.0")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 

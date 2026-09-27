@@ -269,6 +269,7 @@ class DtlineClient:
         stochastic_sampling_gamma: float = 0.3,
         compression_artifacts: int = 0,
         compression_artifacts_quality: float = 43.1,
+        expand_prompt_to_json: bool = False,
         progress_callback: Callable[[str, int], None] | None = None,
         verbose: bool = False,
         output_dir: str | None = None,
@@ -316,6 +317,8 @@ class DtlineClient:
         if compression_artifacts:
             config.compression_artifacts = compression_artifacts
             config.compression_artifacts_quality = compression_artifacts_quality
+        if expand_prompt_to_json:
+            config.expand_prompt_to_json = True
 
         # SDXL conditioning: only set original/target dimensions for SDXL models (latent_size=128)
         latent_size = self._get_model_latent_size(model_filename)
