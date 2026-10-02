@@ -48,6 +48,13 @@ dtline = "dtline.cli:main"
 - `DTgRPCconnector/` is imported directly (path inserted at runtime in `client.py`)
 - No pytest, no linting, no typecheck config — just manual testing
 - Outputs go to `outputs/` (gitignored)
+- Output PNGs embed metadata: A1111-style `parameters` + a `dtline` JSON chunk
+  (model, preset, seed, loras, dtline_version). Read the JSON chunk from any
+  output image to recover exact generation parameters for reruns/edits.
+- `--json` keeps stdout pure: status lines go nowhere when `--json` is set,
+  and library debug prints are banned from stdout. Don't add prints without
+  routing them to stderr.
+- Update check: daily-cached, stderr-only; `DTLINE_NO_UPDATE_CHECK=1` opts out
 
 ## Critical Implementation Details
 

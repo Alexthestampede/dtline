@@ -19,6 +19,7 @@ from drawthings_client import (
 )
 from tensor_decoder import tensor_to_pil
 
+from . import __version__
 from .errors import (
     DtlineError,
     connection_error,
@@ -165,6 +166,67 @@ class DtlineClient:
             self._client.close()
             self._client = None
 
+    @staticmethod
+    def _resolve_output_target(output_name: str | None, out_dir: Path, timestamp: str, seed: int) -> Path | None:
+        """Resolve --output to a target path.
+
+        Accepts a full path, a bare filename, a directory (auto-name inside),
+        or a extensionless stem (suffix added later per output type).
+        """
+        if not output_name:
+            return None
+        target = Path(output_name).expanduser()
+        if target.suffix == "" and target.exists() and target.is_dir():
+            target = target / f"dtline_{timestamp}_{seed}"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        return target
+
+    @staticmethod
+    def _save_png_with_metadata(pil_img, filepath: Path, metadata: dict) -> None:
+        """Save a PNG with two metadata chunks:
+
+        - 'parameters': A1111-style human/ecosystem-readable generation info
+        - 'dtline': structured JSON blob for programmatic access by agents
+        """
+        import json as _json
+
+        from PIL import PngImagePlugin
+
+        # A1111-style 'parameters' text chunk
+        params_lines = [metadata.get("prompt", metadata.get("instruction", ""))]
+        if metadata.get("negative_prompt"):
+            params_lines.append(f"Negative prompt: {metadata['negative_prompt']}")
+        settings_bits = []
+        if metadata.get("model"):
+            settings_bits.append(metadata["model"])
+        if metadata.get("size_label"):
+            settings_bits.append(metadata["size_label"])
+        if metadata.get("steps") is not None:
+            settings_bits.append(f"Steps: {metadata['steps']}")
+        if metadata.get("scheduler"):
+            settings_bits.append(f"Sampler: {metadata['scheduler']}")
+        if metadata.get("cfg") is not None:
+            settings_bits.append(f"CFG scale: {metadata['cfg']}")
+        if metadata.get("seed") is not None:
+            settings_bits.append(f"Seed: {metadata['seed']}")
+        if metadata.get("strength") is not None:
+            settings_bits.append(f"Strength: {metadata['strength']}")
+        if metadata.get("loras"):
+            lora_list = metadata["loras"]
+            settings_bits.append(
+                "LoRA: " + ", ".join(
+                    f"{n}:{w}" if isinstance(w, (int, float)) else str(n)
+                    for n, w in lora_list
+                )
+            )
+        params_lines.append(", ".join(settings_bits))
+
+        png_info = PngImagePlugin.PngInfo()
+        png_info.add_text("parameters", "\n".join(params_lines))
+        png_info.add_text("dtline", _json.dumps(metadata, indent=2, default=str))
+
+        pil_img.save(filepath, "PNG", pnginfo=png_info)
+
     def __enter__(self):
         return self
 
@@ -274,6 +336,7 @@ class DtlineClient:
         verbose: bool = False,
         output_dir: str | None = None,
         output_name: str | None = None,
+        preset_name: str | None = None,
     ) -> tuple[list[Path], dict]:
         if seed is None:
             seed = random.randint(0, 2**32 - 1)
@@ -391,13 +454,38 @@ class DtlineClient:
 
             # Resolve output target: --output may be a full path, a directory,
             # or a bare filename. None means auto-name in out_dir.
-            target = Path(output_name).expanduser() if output_name else None
-            if target is not None:
-                if target.suffix == "":
-                    if target.exists() and target.is_dir():
-                        target = target / f"dtline_{timestamp}_{seed}"
-                    # else: bare stem, suffix added later per output type
-                target.parent.mkdir(parents=True, exist_ok=True)
+            target = self._resolve_output_target(output_name, out_dir, timestamp, seed)
+
+            # Base metadata for embedding in PNGs and returning to caller
+            metadata = {
+                "model": model,
+                "model_file": model_filename,
+                "steps": steps,
+                "cfg": cfg,
+                "scheduler": scheduler,
+                "width": width,
+                "height": height,
+                "seed": seed,
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "clip_skip": clip_skip,
+                "shift": shift,
+                "dtline_version": __version__,
+                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            }
+            if preset_name:
+                metadata["preset"] = preset_name
+            if lora_configs:
+                metadata["loras"] = [
+                    {"file": lc.file, "weight": lc.weight} for lc in lora_configs
+                ]
+            if hires_fix:
+                metadata["hires_fix"] = True
+
+            image_metadata = {
+                **metadata,
+                "size_label": f"{width}x{height}",
+            }
 
             if is_video:
                 # Decode tensor frames to PNG bytes first (imageio.imread can't
@@ -449,21 +537,10 @@ class DtlineClient:
                     else:
                         filename = f"dtline_{timestamp}_{seed}_{i + 1}.png"
                         filepath = out_dir / filename
-                    pil_img.save(filepath, "PNG")
+                    self._save_png_with_metadata(pil_img, filepath, image_metadata)
                     output_paths.append(filepath)
 
-            metadata = {
-                "model": model,
-                "steps": steps,
-                "cfg": cfg,
-                "scheduler": scheduler,
-                "width": width,
-                "height": height,
-                "seed": seed,
-                "duration_seconds": time.time() - tracker.start_time,
-                "prompt": prompt,
-                "negative_prompt": negative_prompt,
-            }
+            metadata["duration_seconds"] = time.time() - tracker.start_time
             if is_video:
                 metadata["num_frames"] = num_frames
                 metadata["video"] = str(output_paths[0])
@@ -584,6 +661,8 @@ class DtlineClient:
         progress_callback: Callable[[str, int], None] | None = None,
         verbose: bool = False,
         output_dir: str | None = None,
+        output_name: str | None = None,
+        preset_name: str | None = None,
     ) -> tuple[list[Path], dict]:
         """Edit an image using AI instructions (img2img/edit models).
 
@@ -766,21 +845,14 @@ class DtlineClient:
             if not generated_images:
                 raise generation_error("No images were returned from the server")
 
-            output_paths = []
-            for i, image_data in enumerate(generated_images):
-                buffer = StringIO()
-                with redirect_stdout(buffer), redirect_stderr(buffer):
-                    pil_img = tensor_to_pil(image_data)
-                out_dir = Path(output_dir) if output_dir else Path("outputs")
-                out_dir.mkdir(parents=True, exist_ok=True)
-                timestamp = time.strftime("%Y%m%d_%H%M%S")
-                filename = f"dtline_edit_{timestamp}_{seed}_{i + 1}.png"
-                filepath = out_dir / filename
-                pil_img.save(filepath, "PNG")
-                output_paths.append(filepath)
+            out_dir = Path(output_dir) if output_dir else Path("outputs")
+            out_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            target = self._resolve_output_target(output_name, out_dir, timestamp, seed)
 
             metadata = {
                 "model": model,
+                "model_file": model_filename,
                 "steps": steps,
                 "cfg": cfg,
                 "scheduler": scheduler,
@@ -789,10 +861,44 @@ class DtlineClient:
                 "width": width,
                 "height": height,
                 "seed": seed,
-                "duration_seconds": time.time() - tracker.start_time,
                 "instruction": instruction,
                 "negative_prompt": negative_prompt,
+                "shift": final_shift,
+                "dtline_version": __version__,
+                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
             }
+            if preset_name:
+                metadata["preset"] = preset_name
+            if lora_configs:
+                metadata["loras"] = [
+                    {"file": lc.file, "weight": lc.weight} for lc in lora_configs
+                ]
+
+            image_metadata = {
+                **metadata,
+                "size_label": f"{width}x{height}",
+                "prompt": instruction,
+            }
+
+            output_paths = []
+            for i, image_data in enumerate(generated_images):
+                buffer = StringIO()
+                with redirect_stdout(buffer), redirect_stderr(buffer):
+                    pil_img = tensor_to_pil(image_data)
+                if target is not None:
+                    if len(generated_images) == 1:
+                        filepath = target if target.suffix else target.with_suffix(".png")
+                    else:
+                        stem = target.stem if target.suffix else str(target)
+                        suffix = target.suffix if target.suffix else ".png"
+                        filepath = target.parent / f"{stem}_{i + 1}{suffix}"
+                else:
+                    filename = f"dtline_edit_{timestamp}_{seed}_{i + 1}.png"
+                    filepath = out_dir / filename
+                self._save_png_with_metadata(pil_img, filepath, image_metadata)
+                output_paths.append(filepath)
+
+            metadata["duration_seconds"] = time.time() - tracker.start_time
 
             return output_paths, metadata
 
@@ -826,6 +932,8 @@ class DtlineClient:
         progress_callback: Callable[[str, int], None] | None = None,
         verbose: bool = False,
         output_dir: str | None = None,
+        output_name: str | None = None,
+        preset_name: str | None = None,
     ) -> tuple[list[Path], dict]:
         """Generate image using multiple reference images (moodboard/IP-Adapter).
 
@@ -940,21 +1048,14 @@ class DtlineClient:
             if not generated_images:
                 raise generation_error("No images were returned from the server")
 
-            output_paths = []
-            for i, image_data in enumerate(generated_images):
-                buffer = StringIO()
-                with redirect_stdout(buffer), redirect_stderr(buffer):
-                    pil_img = tensor_to_pil(image_data)
-                out_dir = Path(output_dir) if output_dir else Path("outputs")
-                out_dir.mkdir(parents=True, exist_ok=True)
-                timestamp = time.strftime("%Y%m%d_%H%M%S")
-                filename = f"dtline_moodboard_{timestamp}_{seed}_{i + 1}.png"
-                filepath = out_dir / filename
-                pil_img.save(filepath, "PNG")
-                output_paths.append(filepath)
+            out_dir = Path(output_dir) if output_dir else Path("outputs")
+            out_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            target = self._resolve_output_target(output_name, out_dir, timestamp, seed)
 
             metadata = {
                 "model": model,
+                "model_file": model_filename,
                 "steps": steps,
                 "cfg": cfg,
                 "scheduler": scheduler,
@@ -962,10 +1063,44 @@ class DtlineClient:
                 "height": height,
                 "seed": seed,
                 "reference_images": len(reference_image_objects),
-                "duration_seconds": time.time() - tracker.start_time,
                 "instruction": instruction,
                 "negative_prompt": negative_prompt,
+                "shift": final_shift,
+                "dtline_version": __version__,
+                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
             }
+            if preset_name:
+                metadata["preset"] = preset_name
+            if lora_configs:
+                metadata["loras"] = [
+                    {"file": lc.file, "weight": lc.weight} for lc in lora_configs
+                ]
+
+            image_metadata = {
+                **metadata,
+                "size_label": f"{width}x{height}",
+                "prompt": instruction,
+            }
+
+            output_paths = []
+            for i, image_data in enumerate(generated_images):
+                buffer = StringIO()
+                with redirect_stdout(buffer), redirect_stderr(buffer):
+                    pil_img = tensor_to_pil(image_data)
+                if target is not None:
+                    if len(generated_images) == 1:
+                        filepath = target if target.suffix else target.with_suffix(".png")
+                    else:
+                        stem = target.stem if target.suffix else str(target)
+                        suffix = target.suffix if target.suffix else ".png"
+                        filepath = target.parent / f"{stem}_{i + 1}{suffix}"
+                else:
+                    filename = f"dtline_moodboard_{timestamp}_{seed}_{i + 1}.png"
+                    filepath = out_dir / filename
+                self._save_png_with_metadata(pil_img, filepath, image_metadata)
+                output_paths.append(filepath)
+
+            metadata["duration_seconds"] = time.time() - tracker.start_time
 
             return output_paths, metadata
 

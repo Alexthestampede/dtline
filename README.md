@@ -91,6 +91,33 @@ dtline uses settings from `settings/config.json` and environment variables:
 | `DTLINE_SSL_CERT` | Path to root CA certificate | `~/.local/dtline/root_ca.crt` |
 | `DTLINE_OUTPUT_DIR` | Default output directory | `~/.local/dtline/outputs` |
 | `DTLINE_CLIP_SKIP` | Default CLIP skip layers | `1` |
+| `DTLINE_NO_UPDATE_CHECK` | Disable the daily update check (`1`) | - |
+
+## Image Metadata
+
+Generated PNGs embed two metadata chunks automatically:
+
+- **`parameters`** (A1111-style): prompt, negative prompt, model, size, steps,
+  sampler, CFG, seed, strength (edits), LoRAs — readable by the broader SD
+  ecosystem (ComfyUI, A1111 PNG-info tools)
+- **`dtline`** (JSON): full structured record — model + resolved filename,
+  preset, scheduler, shift, clip skip, LoRAs (file + weight), dtline version,
+  timestamp. Agents can recover exact generation parameters from any output
+  PNG for reruns or follow-up edits:
+
+```bash
+python3 -c "from PIL import Image; import json; \
+  print(json.loads(Image.open('out.png').info['dtline'])['seed'])"
+```
+
+Seed reruns are pixel-identical; only the embedded timestamps differ.
+
+### Update Checks
+
+dtline checks for new versions at most once per 24h (cached check, daemon
+thread — never delays startup or blocks offline runs). The notice goes to
+**stderr only**, keeping stdout clean for `--json` parsing. Opt out with
+`DTLINE_NO_UPDATE_CHECK=1`.
 
 ## Usage
 
@@ -128,6 +155,7 @@ Edit an existing image using AI instructions (img2img with edit models):
 
 ```bash
 dtline edit photo.png "make it sunset"
+# --output <file|path> works on generate, edit, and moodboard
 ```
 
 **Note:** For edit/kontext models (FLUX Klein, Qwen Image Edit, etc.), dtline **automatically sets strength=1.0** regardless of user input. This is required by these models - setting strength lower will corrupt the reference encoding and produce poor results.

@@ -231,6 +231,7 @@ def cmd_generate(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
             verbose=args.verbose,
             output_dir=output_dir,
             output_name=args.output,
+            preset_name=args.preset,
         )
 
         if args.json:
@@ -555,6 +556,8 @@ def cmd_edit(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
             resolution_dependent_shift=resolution_dependent_shift,
             verbose=args.verbose,
             output_dir=output_dir,
+            output_name=args.output,
+            preset_name=args.preset,
         )
 
         if args.json:
@@ -720,6 +723,8 @@ def cmd_moodboard(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
             resolution_dependent_shift=resolution_dependent_shift,
             verbose=args.verbose,
             output_dir=output_dir,
+            output_name=args.output,
+            preset_name=args.preset,
         )
 
         if args.json:
@@ -918,6 +923,7 @@ def main(argv: list[str] | None = None) -> int:
     edit_parser.add_argument(
         "--lora", action="append", help="LoRA in file:weight format"
     )
+    edit_parser.add_argument("--output", help="Output filename or path")
     edit_parser.add_argument("--output-dir", help="Output directory")
     edit_parser.add_argument("--insecure", action="store_true", help="Disable TLS")
     edit_parser.add_argument(
@@ -967,6 +973,7 @@ def main(argv: list[str] | None = None) -> int:
     moodboard_parser.add_argument(
         "--lora", action="append", help="LoRA in file:weight format"
     )
+    moodboard_parser.add_argument("--output", help="Output filename or path")
     moodboard_parser.add_argument("--output-dir", help="Output directory")
     moodboard_parser.add_argument("--insecure", action="store_true", help="Disable TLS")
     moodboard_parser.add_argument(
@@ -990,6 +997,10 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     config_loader = ConfigLoader()
+
+    from .update_check import start_update_check
+
+    start_update_check(__version__)
 
     return args.func(args, config_loader)
 
