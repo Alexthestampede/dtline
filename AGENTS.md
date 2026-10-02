@@ -148,6 +148,24 @@ to the user's prompt BEFORE passing it to `dtline generate`.
 
 Draw Things gRPC server processes **ONE request at a time**. Parallel requests will fail or corrupt.
 
+## Bridge Mode (Draw Things+ cloud relay) — Avoid
+
+Bridge mode forwards workloads to the official cloud. Observed behaviors (as of
+2026-10): some models produce **noise** through the bridge (Anima Turbo f16,
+Z Image Turbo f16/q8p-S, ERNIE Turbo f16, Qwen Image 2.1 i4x) while others work
+(Krea 2 Turbo 6-bit); local-compute mode is reliable for all. An independent
+project (Draw_Things_Controller) records similar flakiness (`throttlePolicy,
+24_hour in 500` refusals). If output is noise through a bridge, retry on local
+compute before suspecting dtline. Missing-model requests still crash servers
+in both modes.
+
+Update 2026-10-02 (local .150 iPad): **Anima crashes the server locally too**
+(`Socket closed` mid-load, both base and base+turbo-LoRA), independent of
+bridge mode; server recovers after ~60-90s. Z Image/ERNIE/Qwen 1.0 all worked
+locally right after (so the crash is Anima-specific, not residual state).
+Suspect cosmos2.5_2b pipeline (qwen_3 text-encoder pairing) on iPad. Retest
+Anima on a stronger machine before further debugging.
+
 ## Quick Test
 
 ```bash

@@ -192,6 +192,42 @@ class Preset:
         return mapping.get(str(raw).lower(), 0)
 
     @property
+    def tea_cache_start(self) -> int:
+        return int(self.data.get("teaCacheStart", self.data.get("tea_cache_start", 5)))
+
+    @property
+    def tea_cache_end(self) -> int:
+        return int(self.data.get("teaCacheEnd", self.data.get("tea_cache_end", -1)))
+
+    @property
+    def tea_cache_threshold(self) -> float:
+        return float(self.data.get("teaCacheThreshold", self.data.get("tea_cache_threshold", 0.2)))
+
+    @property
+    def tea_cache_max_skip_steps(self) -> int:
+        return int(self.data.get("teaCacheMaxSkipSteps", self.data.get("tea_cache_max_skip_steps", 3)))
+
+    @property
+    def guidance_embed(self) -> float:
+        return float(self.data.get("guidanceEmbed", self.data.get("guidance_embed", 0)))
+
+    @property
+    def speed_up_with_guidance_embed(self) -> bool:
+        return bool(self.data.get("speedUpWithGuidanceEmbed", self.data.get("speed_up_with_guidance_embed", True)))
+
+    @property
+    def t5_text_encoder(self) -> bool:
+        return bool(self.data.get("t5TextEncoder", self.data.get("t5_text_encoder", True)))
+
+    @property
+    def image_prior_steps(self) -> int:
+        return int(self.data.get("imagePriorSteps", self.data.get("image_prior_steps", 5)))
+
+    @property
+    def causal_inference_pad(self) -> int:
+        return int(self.data.get("causalInferencePad", self.data.get("causal_inference_pad", 0)))
+
+    @property
     def prompt_expander(self) -> str:
         return self.data.get("prompt_expander_system", "")
 
@@ -230,6 +266,15 @@ class Preset:
             "sol_attention_start": self.sol_attention_start,
             "sol_attention_tau": self.sol_attention_tau,
             "color_calibration": self.color_calibration,
+            "tea_cache_start": self.tea_cache_start,
+            "tea_cache_end": self.tea_cache_end,
+            "tea_cache_threshold": self.tea_cache_threshold,
+            "tea_cache_max_skip_steps": self.tea_cache_max_skip_steps,
+            "guidance_embed": self.guidance_embed,
+            "speed_up_with_guidance_embed": self.speed_up_with_guidance_embed,
+            "t5_text_encoder": self.t5_text_encoder,
+            "image_prior_steps": self.image_prior_steps,
+            "causal_inference_pad": self.causal_inference_pad,
         }
 
 

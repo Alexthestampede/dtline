@@ -179,7 +179,7 @@ class ImageGenerationConfig:
         upscaler_scale_factor: Upscaler scale factor (0=auto)
         face_restoration: Face restoration model
         refiner_model: Refiner model name
-        refiner_start: When to switch to refiner (0.0-1.0, default 0.7)
+        refiner_start: When to switch to refiner (0.0-1.0, default 0.85)
         hires_fix: Enable hires fix
         hires_fix_start_width: Hires fix starting width in scale units
         hires_fix_start_height: Hires fix starting height in scale units
@@ -224,7 +224,7 @@ class ImageGenerationConfig:
         tea_cache: Enable TeaCache acceleration
         tea_cache_start: TeaCache start step (default 5)
         tea_cache_end: TeaCache end step (default -1)
-        tea_cache_threshold: TeaCache threshold (default 0.06)
+        tea_cache_threshold: TeaCache threshold (default 0.2)
         tea_cache_max_skip_steps: TeaCache max skip steps (default 3)
         causal_inference_enabled: Enable causal inference
         causal_inference: Causal inference value (default 3)
@@ -260,7 +260,7 @@ class ImageGenerationConfig:
     upscaler_scale_factor: int = 0
     face_restoration: str = ""
     refiner_model: str = ""
-    refiner_start: float = 0.7
+    refiner_start: float = 0.85
     # Hires fix
     hires_fix: bool = False
     hires_fix_start_width: int = 0
@@ -315,7 +315,7 @@ class ImageGenerationConfig:
     tea_cache: bool = False
     tea_cache_start: int = 5
     tea_cache_end: int = -1
-    tea_cache_threshold: float = 0.06
+    tea_cache_threshold: float = 0.2
     tea_cache_max_skip_steps: int = 3
     # Causal inference
     causal_inference_enabled: bool = False

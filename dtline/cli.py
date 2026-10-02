@@ -132,6 +132,15 @@ def cmd_generate(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
         sol_attention_start = preset.sol_attention_start
         sol_attention_tau = preset.sol_attention_tau
         color_calibration = preset.color_calibration
+        tea_cache_start = preset.tea_cache_start
+        tea_cache_end = preset.tea_cache_end
+        tea_cache_threshold = preset.tea_cache_threshold
+        tea_cache_max_skip = preset.tea_cache_max_skip_steps
+        guidance_embed = preset.guidance_embed
+        speed_up_guidance = preset.speed_up_with_guidance_embed
+        t5_text_encoder = preset.t5_text_encoder
+        image_prior_steps = preset.image_prior_steps
+        causal_pad = preset.causal_inference_pad
         preset_dims = (preset.width, preset.height) if preset.width and preset.height else None
 
         # Load LoRAs from preset
@@ -166,6 +175,15 @@ def cmd_generate(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
         sol_attention_start = 2
         sol_attention_tau = 0.5
         color_calibration = 0
+        tea_cache_start = 5
+        tea_cache_end = -1
+        tea_cache_threshold = 0.2
+        tea_cache_max_skip = 3
+        guidance_embed = 0.0
+        speed_up_guidance = True
+        t5_text_encoder = True
+        image_prior_steps = 5
+        causal_pad = 0
         preset_dims = None
 
     width, height = _resolve_aspect_ratio(args, config_loader, preset_dims)
@@ -258,6 +276,15 @@ def cmd_generate(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
             sol_attention_start=sol_attention_start,
             sol_attention_tau=sol_attention_tau,
             color_calibration=color_calibration,
+            tea_cache_start=tea_cache_start,
+            tea_cache_end=tea_cache_end,
+            tea_cache_threshold=tea_cache_threshold,
+            tea_cache_max_skip_steps=tea_cache_max_skip,
+            guidance_embed=guidance_embed,
+            speed_up_with_guidance_embed=speed_up_guidance,
+            t5_text_encoder=t5_text_encoder,
+            image_prior_steps=image_prior_steps,
+            causal_inference_pad=causal_pad,
             verbose=args.verbose,
             output_dir=output_dir,
             output_name=args.output,

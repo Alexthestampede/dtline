@@ -378,6 +378,15 @@ class DtlineClient:
         sol_attention_start: int = 2,
         sol_attention_tau: float = 0.5,
         color_calibration: int = 0,
+        tea_cache_start: int = 5,
+        tea_cache_end: int = -1,
+        tea_cache_threshold: float = 0.2,
+        tea_cache_max_skip_steps: int = 3,
+        guidance_embed: float = 0.0,
+        speed_up_with_guidance_embed: bool = True,
+        t5_text_encoder: bool = True,
+        image_prior_steps: int = 5,
+        causal_inference_pad: int = 0,
         progress_callback: Callable[[str, int], None] | None = None,
         verbose: bool = False,
         output_dir: str | None = None,
@@ -448,6 +457,19 @@ class DtlineClient:
             config.sol_attention_tau = sol_attention_tau
         if color_calibration:
             config.color_calibration = color_calibration
+        if tea_cache:
+            config.tea_cache_start = tea_cache_start
+            config.tea_cache_end = tea_cache_end
+            config.tea_cache_threshold = tea_cache_threshold
+            config.tea_cache_max_skip_steps = tea_cache_max_skip_steps
+        if guidance_embed:
+            config.guidance_embed = guidance_embed
+            config.speed_up_with_guidance_embed = speed_up_with_guidance_embed
+        if not t5_text_encoder:
+            config.t5_text_encoder = False
+        config.image_prior_steps = image_prior_steps
+        if causal_inference_pad:
+            config.causal_inference_pad = causal_inference_pad
 
         # SDXL conditioning: only set original/target dimensions for SDXL models (latent_size=128)
         latent_size = self._get_model_latent_size(model_filename)
