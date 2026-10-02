@@ -230,6 +230,7 @@ def cmd_generate(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
             expand_prompt_to_json=expand_prompt_to_json,
             verbose=args.verbose,
             output_dir=output_dir,
+            output_name=args.output,
         )
 
         if args.json:

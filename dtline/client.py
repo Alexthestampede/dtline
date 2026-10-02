@@ -273,6 +273,7 @@ class DtlineClient:
         progress_callback: Callable[[str, int], None] | None = None,
         verbose: bool = False,
         output_dir: str | None = None,
+        output_name: str | None = None,
     ) -> tuple[list[Path], dict]:
         if seed is None:
             seed = random.randint(0, 2**32 - 1)
@@ -388,6 +389,16 @@ class DtlineClient:
             out_dir.mkdir(parents=True, exist_ok=True)
             timestamp = time.strftime("%Y%m%d_%H%M%S")
 
+            # Resolve output target: --output may be a full path, a directory,
+            # or a bare filename. None means auto-name in out_dir.
+            target = Path(output_name).expanduser() if output_name else None
+            if target is not None:
+                if target.suffix == "":
+                    if target.exists() and target.is_dir():
+                        target = target / f"dtline_{timestamp}_{seed}"
+                    # else: bare stem, suffix added later per output type
+                target.parent.mkdir(parents=True, exist_ok=True)
+
             if is_video:
                 # Decode tensor frames to PNG bytes first (imageio.imread can't
                 # read raw CCV tensor chunks; it needs encoded images)
@@ -410,7 +421,9 @@ class DtlineClient:
                 audio_sample_rate = 48000 if is_ltx else 24000
 
                 filename = f"dtline_video_{timestamp}_{seed}.mp4"
-                filepath = out_dir / filename
+                filepath = target if target is not None else out_dir / filename
+                if filepath.suffix == "":
+                    filepath = filepath.with_suffix(".mp4")
                 client.save_video(
                     frames=frame_pngs,
                     output_path=str(filepath),
@@ -425,8 +438,17 @@ class DtlineClient:
                     buffer = StringIO()
                     with redirect_stdout(buffer), redirect_stderr(buffer):
                         pil_img = tensor_to_pil(image_data)
-                    filename = f"dtline_{timestamp}_{seed}_{i + 1}.png"
-                    filepath = out_dir / filename
+                    if target is not None:
+                        if len(generated_images) == 1:
+                            filename = target.name
+                            filepath = target if target.suffix else target.with_suffix(".png")
+                        else:
+                            stem = target.stem if target.suffix else str(target)
+                            suffix = target.suffix if target.suffix else ".png"
+                            filepath = target.parent / f"{stem}_{i + 1}{suffix}"
+                    else:
+                        filename = f"dtline_{timestamp}_{seed}_{i + 1}.png"
+                        filepath = out_dir / filename
                     pil_img.save(filepath, "PNG")
                     output_paths.append(filepath)
 
