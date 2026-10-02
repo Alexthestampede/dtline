@@ -97,7 +97,14 @@ The `shuffle` type VAE-encodes references as visual tokens — required for Klei
 - `"Z Image Turbo 1.0 (8-bit S)"` → resolves via `list-models` metadata
 - `z_image_turbo_1.0_q6p.ckpt` → used directly
 
-But ALWAYS verify against `list-models` first — names differ per server.
+Resolution is exact first, then **fuzzy**: bracketed qualifiers/quant variants
+(`[distilled] (6-bit)` vs `[distilled] 1.1 (6-bit)`) match on normalized
+leading segments (≥8 chars) with a stderr NOTE of what was picked. Unmatched
+names get a stderr WARNING — still passed through (server may crash: check
+`list-models`). `dtline/community_models.py` caches the official
+drawthingsai/community-models catalog (models/loras/builtin/uncurated, 24h)
+for the normalizer; per-model `metadata.json` there carries `default_scale`
+(latent size) and `frames_per_second` for video models.
 
 ### Pony/SDXL Models
 

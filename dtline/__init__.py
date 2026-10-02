@@ -2,4 +2,4 @@
 
 # Calendar versioning: YYYYMMDD for releases, .N suffix for same-day updates
 # (e.g. 20261002.1, 20261002.2, ...)
-__version__ = "20261002.3"
+__version__ = "20261002.4"

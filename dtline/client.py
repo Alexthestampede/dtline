@@ -115,9 +115,45 @@ class DtlineClient:
 
     def _resolve_model_name(self, model_name: str) -> str:
         metadata = self._fetch_model_metadata()
+        # Exact display-name / filename match first
         for m in metadata:
             if m.get("name") == model_name or m.get("file") == model_name:
                 return m.get("file", model_name)
+        # Fuzzy match: bracketed qualifiers and quants make exact names brittle
+        # ("LTX-2.3 22B [distilled] (6-bit)" vs "[distilled] 1.1 (6-bit)").
+        # Normalize both sides and match on a shared leading segment.
+        from .community_models import _display_core, _common_head
+
+        want = _display_core(model_name)
+        if want:
+            best = None
+            for m in metadata:
+                have_name = _display_core(m.get("name", ""))
+                have_file = _display_core(m.get("file", ""))
+                head_n = _common_head(want, have_name)
+                head_f = _common_head(want, have_file)
+                # Equality or full-prefix match counts even below head threshold
+                exact = want == have_name or want == have_file
+                prefix = bool(want) and (head_n == want or head_f == want)
+                head = max((head_n, head_f), key=len)
+                if exact or prefix or len(head) >= 8:
+                    score = (len(head_n if prefix else head), m.get("name", ""))
+                    if best is None or score > best[0]:
+                        best = (score, m)
+            if best:
+                resolved = best[1].get("file", model_name)
+                if best[1].get("name") != model_name:
+                    print(
+                        f"NOTE: '{model_name}' matched server model "
+                        f"'{best[1].get('name')}' (fuzzy model-name match).",
+                        file=sys.stderr,
+                    )
+                return resolved
+        print(
+            f"WARNING: Model '{model_name}' not found on server. Check "
+            f"`dtline list-models` — wrong names can crash the server.",
+            file=sys.stderr,
+        )
         return model_name
 
     def _resolve_lora_name(self, lora_name: str) -> str:
@@ -135,8 +171,8 @@ class DtlineClient:
         if not lora_name.endswith((".ckpt", ".safetensors")):
             print(
                 f"WARNING: LoRA '{lora_name}' not found on server — unknown LoRA "
-                f"names are dropped silently by the server. "
-                f"Check `dtline list-models` for exact filenames.",
+                f"names are dropped silently by the server. Check "
+                f"`dtline list-models` for exact filenames.",
                 file=sys.stderr,
             )
         return lora_name
