@@ -70,7 +70,7 @@ def _resolve_aspect_ratio(
 
 
 def cmd_generate(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
-    if not args.quiet:
+    if not args.quiet and not args.json:
         print(f"Generating image...")
         print(f"Prompt: {args.prompt}")
         if args.verbose:
@@ -196,7 +196,7 @@ def cmd_generate(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
             print(f"  Size: {width}x{height}")
             return 0
 
-        if not args.quiet:
+        if not args.quiet and not args.json:
             print(f"Model: {model}")
             print(f"Size: {width}x{height}")
             if args.preset:
@@ -424,7 +424,7 @@ def cmd_preset_info(args: argparse.Namespace, config_loader: ConfigLoader) -> in
 
 def cmd_edit(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
     """Edit an image using AI instructions."""
-    if not args.quiet:
+    if not args.quiet and not args.json:
         print(f"Editing image...")
         print(f"Image: {args.image}")
         print(f"Instruction: {args.instruction}")
@@ -528,7 +528,7 @@ def cmd_edit(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
             print(f"  Input Image: {args.image}")
             return 0
 
-        if not args.quiet:
+        if not args.quiet and not args.json:
             print(f"Model: {model}")
             if strength is not None:
                 print(f"Strength: {strength}")
@@ -602,7 +602,7 @@ def cmd_edit(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
 
 def cmd_moodboard(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
     """Generate image using multiple reference images."""
-    if not args.quiet:
+    if not args.quiet and not args.json:
         print(f"Generating moodboard image...")
         print(f"Instruction: {args.instruction}")
         print(f"Reference images: {len(args.images)}")
@@ -699,7 +699,7 @@ def cmd_moodboard(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
                 print(f"    {i + 1}. {img}")
             return 0
 
-        if not args.quiet:
+        if not args.quiet and not args.json:
             print(f"Model: {model}")
             print(f"Processing {len(args.images)} reference images...")
 
