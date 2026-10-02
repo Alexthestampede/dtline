@@ -160,11 +160,14 @@ compute before suspecting dtline. Missing-model requests still crash servers
 in both modes.
 
 Update 2026-10-02 (local .150 iPad): **Anima crashes the server locally too**
-(`Socket closed` mid-load, both base and base+turbo-LoRA), independent of
-bridge mode; server recovers after ~60-90s. Z Image/ERNIE/Qwen 1.0 all worked
-locally right after (so the crash is Anima-specific, not residual state).
-Suspect cosmos2.5_2b pipeline (qwen_3 text-encoder pairing) on iPad. Retest
-Anima on a stronger machine before further debugging.
+(`Socket closed` mid-load), independent of bridge mode; server recovers after
+~60-90s. Isolation: crash depends on the **filename shape used** — catalog-style
+filenames (`anima_aesthetic_1.1_f16.ckpt`) crash, while server display names
+(`anima_aestheticV11`) generate fine, with or without the turbo LoRA. Root
+cause was a hand-edited server model JSON referencing the f16 full model,
+which the app can't reconcile/delete. Rule: when `Socket closed` hits one
+name, retry the same model via its `list-models` display name before blaming
+the model, preset, or pipeline.
 
 ## Quick Test
 
