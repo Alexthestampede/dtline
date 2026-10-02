@@ -79,7 +79,7 @@ class Preset:
 
     @property
     def resolution_dependent_shift(self) -> bool:
-        return bool(self.data.get("resolutionDependentShift", False))
+        return bool(self.data.get("resolutionDependentShift", self.data.get("resolution_dependent_shift", False)))
 
     @property
     def clip_skip(self) -> int:
@@ -147,6 +147,51 @@ class Preset:
         return bool(self.data.get("expandPromptToJson", self.data.get("expand_prompt_to_json", False)))
 
     @property
+    def tiled_decoding(self) -> bool:
+        return bool(self.data.get("tiledDecoding", self.data.get("tiled_decoding", False)))
+
+    @property
+    def tiled_diffusion(self) -> bool:
+        return bool(self.data.get("tiledDiffusion", self.data.get("tiled_diffusion", False)))
+
+    @property
+    def decoding_tile_width(self) -> int:
+        return int(self.data.get("decodingTileWidth", self.data.get("decoding_tile_width", 0)))
+
+    @property
+    def decoding_tile_height(self) -> int:
+        return int(self.data.get("decodingTileHeight", self.data.get("decoding_tile_height", 0)))
+
+    @property
+    def decoding_tile_overlap(self) -> int:
+        return int(self.data.get("decodingTileOverlap", self.data.get("decoding_tile_overlap", 0)))
+
+    @property
+    def shift_for_audio(self) -> float:
+        return float(self.data.get("shiftForAudio", self.data.get("shift_for_audio", 0)))
+
+    @property
+    def uses_sol_attention(self) -> bool:
+        return bool(self.data.get("usesSolAttention", self.data.get("uses_sol_attention", False)))
+
+    @property
+    def sol_attention_start(self) -> int:
+        return int(self.data.get("solAttentionStart", self.data.get("sol_attention_start", 0)))
+
+    @property
+    def sol_attention_tau(self) -> float:
+        return float(self.data.get("solAttentionTau", self.data.get("sol_attention_tau", 0)))
+
+    @property
+    def color_calibration(self) -> int:
+        """ColorCalibration enum: Disabled=0, Lab=1. DT export uses string names."""
+        raw = self.data.get("colorCalibration", self.data.get("color_calibration", "none"))
+        if isinstance(raw, int):
+            return raw
+        mapping = {"none": 0, "disabled": 0, "lab": 1}
+        return mapping.get(str(raw).lower(), 0)
+
+    @property
     def prompt_expander(self) -> str:
         return self.data.get("prompt_expander_system", "")
 
@@ -175,6 +220,16 @@ class Preset:
             "compression_artifacts": self.compression_artifacts,
             "compression_artifacts_quality": self.compression_artifacts_quality,
             "expand_prompt_to_json": self.expand_prompt_to_json,
+            "tiled_decoding": self.tiled_decoding,
+            "tiled_diffusion": self.tiled_diffusion,
+            "decoding_tile_width": self.decoding_tile_width,
+            "decoding_tile_height": self.decoding_tile_height,
+            "decoding_tile_overlap": self.decoding_tile_overlap,
+            "shift_for_audio": self.shift_for_audio,
+            "uses_sol_attention": self.uses_sol_attention,
+            "sol_attention_start": self.sol_attention_start,
+            "sol_attention_tau": self.sol_attention_tau,
+            "color_calibration": self.color_calibration,
         }
 
 

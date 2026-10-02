@@ -332,6 +332,16 @@ class DtlineClient:
         compression_artifacts: int = 0,
         compression_artifacts_quality: float = 43.1,
         expand_prompt_to_json: bool = False,
+        tiled_decoding: bool = False,
+        tiled_diffusion: bool = False,
+        decoding_tile_width: int = 0,
+        decoding_tile_height: int = 0,
+        decoding_tile_overlap: int = 0,
+        shift_for_audio: float = 3.0,
+        uses_sol_attention: bool = False,
+        sol_attention_start: int = 2,
+        sol_attention_tau: float = 0.5,
+        color_calibration: int = 0,
         progress_callback: Callable[[str, int], None] | None = None,
         verbose: bool = False,
         output_dir: str | None = None,
@@ -383,6 +393,25 @@ class DtlineClient:
             config.compression_artifacts_quality = compression_artifacts_quality
         if expand_prompt_to_json:
             config.expand_prompt_to_json = True
+        if tiled_decoding:
+            config.tiled_decoding = True
+            # Config tile dims are in scale units (64px); presets carry pixels
+            if decoding_tile_width:
+                config.decoding_tile_width = decoding_tile_width // 64
+            if decoding_tile_height:
+                config.decoding_tile_height = decoding_tile_height // 64
+            if decoding_tile_overlap:
+                config.decoding_tile_overlap = decoding_tile_overlap // 64
+        if tiled_diffusion:
+            config.tiled_diffusion = True
+        if shift_for_audio:
+            config.shift_for_audio = shift_for_audio
+        if uses_sol_attention:
+            config.uses_sol_attention = True
+            config.sol_attention_start = sol_attention_start
+            config.sol_attention_tau = sol_attention_tau
+        if color_calibration:
+            config.color_calibration = color_calibration
 
         # SDXL conditioning: only set original/target dimensions for SDXL models (latent_size=128)
         latent_size = self._get_model_latent_size(model_filename)

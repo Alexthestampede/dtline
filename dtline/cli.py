@@ -122,6 +122,16 @@ def cmd_generate(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
         compression_artifacts = _compression_to_int(preset.compression_artifacts)
         compression_quality = preset.compression_artifacts_quality
         expand_prompt_to_json = preset.expand_prompt_to_json
+        tiled_decoding = preset.tiled_decoding
+        tiled_diffusion = preset.tiled_diffusion
+        decoding_tile_width = preset.decoding_tile_width
+        decoding_tile_height = preset.decoding_tile_height
+        decoding_tile_overlap = preset.decoding_tile_overlap
+        shift_for_audio = preset.shift_for_audio
+        uses_sol_attention = preset.uses_sol_attention
+        sol_attention_start = preset.sol_attention_start
+        sol_attention_tau = preset.sol_attention_tau
+        color_calibration = preset.color_calibration
         preset_dims = (preset.width, preset.height) if preset.width and preset.height else None
 
         # Load LoRAs from preset
@@ -146,6 +156,16 @@ def cmd_generate(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
         compression_artifacts = 0
         compression_quality = 43.1
         expand_prompt_to_json = False
+        tiled_decoding = False
+        tiled_diffusion = False
+        decoding_tile_width = 0
+        decoding_tile_height = 0
+        decoding_tile_overlap = 0
+        shift_for_audio = 3.0
+        uses_sol_attention = False
+        sol_attention_start = 2
+        sol_attention_tau = 0.5
+        color_calibration = 0
         preset_dims = None
 
     width, height = _resolve_aspect_ratio(args, config_loader, preset_dims)
@@ -228,6 +248,16 @@ def cmd_generate(args: argparse.Namespace, config_loader: ConfigLoader) -> int:
             compression_artifacts=compression_artifacts,
             compression_artifacts_quality=compression_quality,
             expand_prompt_to_json=expand_prompt_to_json,
+            tiled_decoding=tiled_decoding,
+            tiled_diffusion=tiled_diffusion,
+            decoding_tile_width=decoding_tile_width,
+            decoding_tile_height=decoding_tile_height,
+            decoding_tile_overlap=decoding_tile_overlap,
+            shift_for_audio=shift_for_audio,
+            uses_sol_attention=uses_sol_attention,
+            sol_attention_start=sol_attention_start,
+            sol_attention_tau=sol_attention_tau,
+            color_calibration=color_calibration,
             verbose=args.verbose,
             output_dir=output_dir,
             output_name=args.output,

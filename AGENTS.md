@@ -31,7 +31,7 @@ DTgRPCconnector/         # gRPC client library (subdirectory, not pip)
 
 settings/               # Configuration presets
 ├── config.json         # User settings (gitignored)
-├── presets/*.json      # Model presets (24 files, incl. video + expander presets)
+├── presets/*.json      # Model presets (27 files, incl. video + expander presets)
 └── negative_prompts/*.json
 ```
 
