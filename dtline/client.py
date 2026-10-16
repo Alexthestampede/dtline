@@ -122,24 +122,51 @@ class DtlineClient:
         # Fuzzy match: bracketed qualifiers and quants make exact names brittle
         # ("LTX-2.3 22B [distilled] (6-bit)" vs "[distilled] 1.1 (6-bit)").
         # Normalize both sides and match on a shared leading segment.
-        from .community_models import _display_core, _common_head
+        from .community_models import _display_core, _common_head, _file_core
 
-        want = _display_core(model_name)
-        if want:
+        want_display = _display_core(model_name)
+        want_file = _file_core(model_name)
+        if want_display or want_file:
             best = None
+
+            def have_variants(m):
+                return (
+                    _display_core(m.get("name", "")),
+                    _file_core(m.get("file", "")),
+                )
+
+            def strength_of(want, have):
+                """0=none, 1=strong fuzzy (containment), 2=exact."""
+                if not want or not have:
+                    return 0
+                if want == have:
+                    return 2
+                head = _common_head(want, have)
+                # family-prefix containment only: want fully contained at the
+                # front of have ('ltx2322b' ⊂ 'ltx2322bdistilled11') or vice
+                # versa. A bare common segment >= N is NOT enough: it glues
+                # unrelated family members (qwen_image_1.0 -> 2.1 Turbo).
+                if head == want or head == have:
+                    return 1
+                return 0
+
             for m in metadata:
-                have_name = _display_core(m.get("name", ""))
-                have_file = _display_core(m.get("file", ""))
-                head_n = _common_head(want, have_name)
-                head_f = _common_head(want, have_file)
-                # Equality or full-prefix match counts even below head threshold
-                exact = want == have_name or want == have_file
-                prefix = bool(want) and (head_n == want or head_f == want)
-                head = max((head_n, head_f), key=len)
-                if exact or prefix or len(head) >= 8:
-                    score = (len(head_n if prefix else head), m.get("name", ""))
+                hn, hf = have_variants(m)
+                s = max(strength_of(want_display, hn), strength_of(want_display, hf),
+                        strength_of(want_file, hn), strength_of(want_file, hf))
+                if s:
+                    score = (s, len(_common_head(want_display, hn)), m.get("name", ""))
                     if best is None or score > best[0]:
                         best = (score, m)
+            if best:
+                resolved = best[1].get("file", model_name)
+                if best[1].get("name") != model_name:
+                    print(
+                        f"NOTE: '{model_name}' matched server model "
+                        f"'{best[1].get('name')}' (fuzzy model-name match).",
+                        file=sys.stderr,
+                    )
+                return resolved
             if best:
                 resolved = best[1].get("file", model_name)
                 if best[1].get("name") != model_name:
@@ -675,7 +702,7 @@ class DtlineClient:
 
         Edit models include:
         - Flux Klein (kontext models)
-        - Qwen Image Edit
+        - Qwen Image Edit / Qwen Image 2.1 (modifier 'kontext' in server metadata)
         - InstructPix2Pix models
         - Other reference-based edit models
         """
@@ -687,7 +714,21 @@ class DtlineClient:
             "instruct",
             "pix2pix",
         ]
-        return any(keyword in name_lower for keyword in edit_keywords)
+        if any(keyword in name_lower for keyword in edit_keywords):
+            return True
+        # Server metadata carries a 'modifier' field (e.g. 'kontext') that
+        # names alone miss: "Qwen Image 2.1" is kontext-modified without
+        # having any edit keyword in its display name.
+        try:
+            metadata = self._fetch_model_metadata()
+            resolved = self._resolve_model_name(model_name)
+            for m in metadata:
+                if m.get("file") == resolved:
+                    modifier = str(m.get("modifier", "")).lower()
+                    return any(k in modifier for k in ("kontext", "edit", "instruct", "pix2pix"))
+        except Exception:
+            pass
+        return False
 
     def _encode_reference_image(
         self, image_path: str, target_size: int = 1024

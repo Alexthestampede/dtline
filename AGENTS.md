@@ -65,6 +65,8 @@ For FLUX Klein, Qwen Edit, etc., strength **must** be 1.0. dtline auto-detects t
 ```python
 # client.py _is_edit_model()
 edit_keywords = ["klein", "kontext", "edit", "instruct", "pix2pix"]
+# Falls back to server metadata 'modifier' field (e.g. 'kontext') for models
+# whose display name has no keyword: "Qwen Image 2.1" is a kontext edit model.
 ```
 
 If user passes `--strength`, it's ignored for edit models (with verbose notice).
@@ -97,14 +99,20 @@ The `shuffle` type VAE-encodes references as visual tokens — required for Klei
 - `"Z Image Turbo 1.0 (8-bit S)"` → resolves via `list-models` metadata
 - `z_image_turbo_1.0_q6p.ckpt` → used directly
 
-Resolution is exact first, then **fuzzy**: bracketed qualifiers/quant variants
-(`[distilled] (6-bit)` vs `[distilled] 1.1 (6-bit)`) match on normalized
-leading segments (≥8 chars) with a stderr NOTE of what was picked. Unmatched
-names get a stderr WARNING — still passed through (server may crash: check
-`list-models`). `dtline/community_models.py` caches the official
+Resolution is exact first, then **fuzzy** by containment only (exact equality
+or one name fully containing the other at the front): bracket/quant variants
+(`[distilled] (6-bit)` vs `[distilled] 1.1 (6-bit)`) match with a stderr NOTE
+of what was picked. A bare shared segment is NOT enough — `qwen_image_1.0`
+fuzzy-matched `Qwen Image 2.1 Turbo` on a shared 8-char 'qwenimage' head
+until the rule was tightened. If the exact model is absent but a same-family
+member exists (server has only 2.1 Turbo, preset names base 2.1), the family
+member is picked WITH a NOTE — preferred over passing a missing model name
+through (that crashes the server). Truly unmatched names warn on stderr and
+pass through. `dtline/community_models.py` caches the official
 drawthingsai/community-models catalog (models/loras/builtin/uncurated, 24h)
 for the normalizer; per-model `metadata.json` there carries `default_scale`
-(latent size) and `frames_per_second` for video models.
+(latent size) and `frames_per_second` for video models. Note: DT UI quant
+labels differ from filenames — `i4x` = "4-bit S".
 
 ### Pony/SDXL Models
 
