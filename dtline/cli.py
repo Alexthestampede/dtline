@@ -1055,11 +1055,18 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     config_loader = ConfigLoader()
 
-    from .update_check import start_update_check
+    from .update_check import start_update_check, finish_update_check
 
+    # --version/--help exit inside parse_args; the check never starts there,
+    # which is fine (they don't need the notice).
     start_update_check(__version__)
 
-    return args.func(args, config_loader)
+    try:
+        return args.func(args, config_loader)
+    finally:
+        # Bound the exit wait so even fast subcommands complete the check when
+        # it's due (fetch timeout is 2s; at most 3s here, and only when due).
+        finish_update_check(3.0)
 
 
 if __name__ == "__main__":

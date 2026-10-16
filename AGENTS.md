@@ -54,7 +54,10 @@ dtline = "dtline.cli:main"
 - `--json` keeps stdout pure: status lines go nowhere when `--json` is set,
   and library debug prints are banned from stdout. Don't add prints without
   routing them to stderr.
-- Update check: daily-cached, stderr-only; `DTLINE_NO_UPDATE_CHECK=1` opts out
+- Update check: daily-cached (state advances only on SUCCESSFUL fetch),
+  bounded exit-wait (3s max, only when a check is due) so fast subcommands
+  still show the notice; stderr-only; `DTLINE_NO_UPDATE_CHECK=1` opts out.
+  `--version` exits before the check starts (argparse) — by design.
 
 ## Critical Implementation Details
 
