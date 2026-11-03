@@ -12,7 +12,7 @@ A comprehensive Python client library for the [Draw Things](https://drawthings.a
 - **ControlNet**: Complete ControlNet support via `ControlNetConfig` with 18 input types
 - **LoRA in FlatBuffer**: Pass LoRA adapters directly in the generation config via `LoRAConfig`
 - **Smart Model Detection**: Automatically fetches latent size and metadata from server
-- **Wide Model Support**: SD 1.5, SD 2.x, SDXL, FLUX, FLUX Kontext, Z-Image, Qwen, Stable Video Diffusion, LTX, and more
+- **Wide Model Support**: SD 1.5, SD 2.x, SDXL, FLUX (incl. FLUX.2/FLUX.3 Klein), Z-Image, Qwen, MOSS Image, Cosmos 2.5, Stable Video Diffusion, LTX 2.3, and more
 - **Tensor Encoding/Decoding**: Proper handling of both fpzip-compressed and uncompressed float16 tensors
 - **Model Discovery**: List and browse available models and LoRAs
 - **Streaming Progress**: Real-time progress updates during generation
@@ -360,7 +360,7 @@ config = ImageGenerationConfig(
     upscaler_scale_factor=0,        # 0 = auto
     face_restoration="",
     refiner_model="",
-    refiner_start=0.7,
+    refiner_start=0.85,
 
     # --- Hires fix ---
     hires_fix=False,
@@ -398,7 +398,7 @@ config = ImageGenerationConfig(
     tea_cache=False,
     tea_cache_start=5,
     tea_cache_end=-1,               # -1 means end of steps
-    tea_cache_threshold=0.06,
+    tea_cache_threshold=0.2,
     tea_cache_max_skip_steps=3,
 
     # --- Causal inference ---
@@ -655,10 +655,12 @@ Known automatic mappings:
 |---------------|-------------|--------------|
 | `*sd15*`, `*sd1.5*` | 64 | Stable Diffusion 1.5 |
 | `*xl*`, `*sdxl*` | 128 | Stable Diffusion XL |
-| `*flux*` | 64 | FLUX.1 |
+| `*flux*`, `*klein*` | 64 | FLUX.1 / FLUX.2 / FLUX.3 Klein |
 | `*z_image*` | 64 | Z-Image (FLUX VAE) |
 | `*qwen*` | 64 | Qwen Image |
-| `*klein*` | 64 | Flux Klein / Kontext |
+| `*moss_image*` | 64 | MOSS Image (FLUX-2 VAE) |
+| `*cosmos*` | 64 | Cosmos 2.5 (image model) |
+| `*ltx*` | 64 | LTX 2.x video |
 
 If metadata is unavailable the client falls back to filename heuristics. Override with `--latent-size` if needed.
 

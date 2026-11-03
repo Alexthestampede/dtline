@@ -108,6 +108,59 @@ with DrawThingsClient("server.example.com:7859", insecure=False, verify_ssl=Fals
     client.save_images(images, output_dir="output", prefix="landscape")
 ```
 
+### MOSS Image (1024×1024)
+
+MOSS Image (OpenMOSS) is a text-to-image model with a FLUX-2 VAE and a Qwen 3.5 text encoder. Upstream recommends **50 steps, guidance 3, shift 5**, and it can follow natural-language prompts, tag sequences, or JSON layouts for text placement.
+
+```python
+from drawthings_client import DrawThingsClient, ImageGenerationConfig
+
+config = ImageGenerationConfig(
+    model="moss_image_sft_q8p.ckpt",   # or moss_image_base_q8p.ckpt
+    steps=50,
+    width=1024,
+    height=1024,                       # defaultScale 16 → 1024px
+    cfg_scale=3.0,                     # text guidance
+    scheduler="Euler A Trailing",
+    shift=5.0,                         # MOSS recommended shift
+    expand_prompt_to_json=True,        # optional: JSON-layout prompts
+)
+
+with DrawThingsClient("server.example.com:7859", insecure=False, verify_ssl=False) as client:
+    images = client.generate_image(
+        prompt="a red vintage motorcycle parked in front of a neon-lit diner at night",
+        config=config,
+    )
+    client.save_images(images, output_dir="output", prefix="moss_motorcycle")
+```
+
+### FLUX.3 klein and Cosmos 2.5
+
+- **FLUX.3 klein** (`flux3_5b`) is a FLUX-family edit/reference model — use the same pattern as [Flux Klein / Kontext Edit](#flux-klein--kontext-edit): `strength=1.0` plus `input_image` or `reference_images`.
+- **Cosmos 2.5 (2B / 2.9B)** is exposed by Draw Things as an **image** model, not a video model: it is batch-enabled and does not use `num_frames`. Generate it like any text-to-image model (1024×1024 typical).
+
+```python
+from drawthings_client import DrawThingsClient, ImageGenerationConfig
+
+config = ImageGenerationConfig(
+    model="cosmos_2.5_2b_q8p.ckpt",    # use the filename the server advertises
+    steps=30,
+    width=1024,
+    height=1024,
+    cfg_scale=4.0,                     # tune to taste
+    scheduler="Euler A Trailing",
+)
+
+with DrawThingsClient("server.example.com:7859", insecure=False, verify_ssl=False) as client:
+    images = client.generate_image(
+        prompt="aerial view of a futuristic city at dusk, cinematic",
+        config=config,
+    )
+    client.save_images(images, output_dir="output", prefix="cosmos_city")
+```
+
+> Model filenames come from the server's model browser — check them with `python examples/list_models.py`.
+
 ### Reproducible Results with Seed
 
 ```python
@@ -794,7 +847,7 @@ config = ImageGenerationConfig(
     tea_cache=True,
     tea_cache_start=5,           # start caching after step 5
     tea_cache_end=-1,            # -1 means run until end
-    tea_cache_threshold=0.06,    # similarity threshold; higher = more aggressive
+    tea_cache_threshold=0.2,     # default; lower = more conservative skipping
     tea_cache_max_skip_steps=3,  # max consecutive skipped steps
 )
 
