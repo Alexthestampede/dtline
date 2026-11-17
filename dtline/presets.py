@@ -1,5 +1,7 @@
 """Preset, aspect ratio, and negative prompt loading from settings/."""
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
 from typing import NamedTuple

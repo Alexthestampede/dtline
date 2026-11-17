@@ -28,14 +28,18 @@ if [ ! -d "$DTLINE_VENV" ]; then
     echo ""
     echo "Creating virtual environment..."
     PYTHON_CMD=""
-    for py in python3.11 python3.12 python3.13 python3; do
+    for py in python3.13 python3.12 python3.11 python3.10 python3; do
         if command -v "$py" >/dev/null 2>&1; then
-            PYTHON_CMD="$py"
-            break
+            # dtline supports 3.8+; warn if the only option is older.
+            if "$py" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)'; then
+                PYTHON_CMD="$py"
+                break
+            fi
         fi
     done
     if [ -z "$PYTHON_CMD" ]; then
-        echo "✗ Python 3 not found"
+        echo "✗ Python 3.8+ not found"
+        echo "  macOS: brew install python  (the Xcode CLT python3 may be too old)"
         exit 1
     fi
     echo "Using Python: $PYTHON_CMD ($($PYTHON_CMD --version))"

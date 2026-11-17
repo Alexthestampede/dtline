@@ -6,6 +6,8 @@ burns neither the 24h day-slot nor the process: the next invocation retries
 (at most once per retry_interval, so offline machines don't hammer).
 """
 
+from __future__ import annotations
+
 import json
 import os
 import re

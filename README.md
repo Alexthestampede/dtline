@@ -35,6 +35,12 @@ exist on the server you're connecting to. Same applies to LoRAs — check
 
 ## Installation
 
+**Platforms:** Linux and macOS (Intel and Apple Silicon). All dependencies ship
+macOS wheels (grpcio universal2, fpzip arm64/x86_64, imageio-ffmpeg darwin).
+Requires **Python 3.8+**; the installer prefers the newest `python3.1x` it
+finds. On macOS, if the only Python is the Xcode CLT one (often 3.9), it still
+works — or use Homebrew's `python3` for a newer interpreter.
+
 ### Standard Installation
 
 ```bash

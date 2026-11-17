@@ -1,5 +1,7 @@
 """Wrapper around DrawThingsClient with error handling and dtline-specific logic."""
 
+from __future__ import annotations
+
 import sys
 import time
 import random

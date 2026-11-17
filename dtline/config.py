@@ -1,5 +1,7 @@
 """Configuration loading from environment, config file, and defaults."""
 
+from __future__ import annotations
+
 import json
 import os
 from pathlib import Path
