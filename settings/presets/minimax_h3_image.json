@@ -10,5 +10,5 @@
   "resolution_dependent_shift": false,
   "width": 4096,
   "height": 4096,
-  "notes": "16MP image model (minimax_h3_image_*): generates/edits at every aspect ratio from 4096x4096 to 6272x2688 without an upscaler. Distilled to 6 DDIM Trailing steps, Text Guidance 1, shift 3, resolution-dependent shift disabled. kontext edit model: up to 16 reference images via moodboard, identified in the prompt as <Picture 1>, <Picture 2>, etc. Expects a detailed English description of the whole image. Start at 4096x4096 (override with --width/--height or --aspect-ratio on smaller machines)."
+  "notes": "PREVIEW / NOT YET SUPPORTED: MiniMax H3 Image (16MP image model). 16MP at every aspect ratio from 4096x4096 to 6272x2688 without an upscaler. Distilled to 6 DDIM Trailing steps, Text Guidance 1, shift 3, resolution-dependent shift disabled. kontext edit model: up to 16 reference images via moodboard, identified in the prompt as <Picture 1>, <Picture 2>, etc. Expects a detailed English description of the whole image. Kept as a reference recipe; servers/clients do not support this model yet."
 }

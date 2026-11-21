@@ -606,10 +606,17 @@ class DtlineClient:
             if is_video:
                 # save_video() decodes CCV tensor frames itself (and flattens
                 # RGBA to RGB for the video codec); pass them straight through.
-                # LTX video models output at a fixed 25 fps and 48 kHz audio
-                is_ltx = "ltx" in model_filename.lower()
+                # LTX video models output at a fixed 25 fps; H3 family is 24 fps
+                # with 32 kHz stereo audio; other video models default to 24 kHz.
+                model_lower = model_filename.lower()
+                is_ltx = "ltx" in model_lower
                 actual_fps = 25 if is_ltx else 24
-                audio_sample_rate = 48000 if is_ltx else 24000
+                if is_ltx:
+                    audio_sample_rate = 48000
+                elif "minimax_h3" in model_lower or "fast_h3" in model_lower or "fasth3" in model_lower:
+                    audio_sample_rate = 32000
+                else:
+                    audio_sample_rate = 24000
 
                 filename = f"dtline_video_{timestamp}_{seed}.mp4"
                 filepath = target if target is not None else out_dir / filename

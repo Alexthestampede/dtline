@@ -1,0 +1,15 @@
+{
+  "name": "FastH3 Omni (Official)",
+  "description": "Official Draw Things preset for FastH3 Omni, an 8-step H3 ref2va video model",
+  "base_resolution": 1280,
+  "clip_skip": 1,
+  "recommended_steps": 8,
+  "recommended_cfg": 1.0,
+  "sampler": "DDIM Trailing",
+  "shift": 12.0,
+  "shift_for_audio": 3.0,
+  "num_frames": 73,
+  "width": 1280,
+  "height": 768,
+  "notes": "8-step distilled MiniMax H3 [ref2va] (reference-to-video): generates 24 fps video with synchronized 32 kHz stereo audio. Requires at least one reference image (canvas/moodboard), identified in the prompt as <Picture 1>, <Picture 2>, etc. Official recipe: 768-pixel short side, 8 DDIM Trailing steps, Text Guidance 1, Shift 12, Audio Shift 3. 73 frames = 8n+1 (valid 9-257); ~3s of video at 24 fps. Override frames with --num-frames."
+}
