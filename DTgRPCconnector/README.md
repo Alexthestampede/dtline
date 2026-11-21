@@ -266,7 +266,7 @@ images: List[bytes] = client.generate_image(
 )
 ```
 
-The returned list contains CCV tensor bytes; `save_images()` decodes them to PNG. 4-channel tensors (RGBA — e.g. Qwen Image 2.1) are saved with their alpha channel intact. Save them with:
+The returned list contains CCV tensor bytes; `save_images()` decodes them to PNG. 4-channel tensors (ARGB on the wire, normalized to RGBA — e.g. Qwen Image 2.1) are saved with their alpha channel intact. Save them with:
 
 ```python
 client.save_images(images, output_dir="output", prefix="generated")
@@ -663,7 +663,7 @@ Known automatic mappings:
 | `*cosmos*` | 64 | Cosmos 2.5 (image model) |
 | `*ltx*` | 64 | LTX 2.x video |
 
-Qwen Image 2.1 can emit **4-channel RGBA** tensors. `decode_tensor()` reports the channel count, `tensor_to_pil()` maps 4 channels to PIL `RGBA`, and `save_images()` / `save_tensor_image()` write PNGs that preserve alpha.
+Qwen Image 2.1 can emit **4-channel** tensors. Draw Things orders those channels as **ARGB** (alpha first); `decode_tensor()` normalizes them to RGBA, `tensor_to_pil()` returns a PIL `RGBA` image, and `save_images()` / `save_tensor_image()` write PNGs that preserve alpha.
 
 If metadata is unavailable the client falls back to filename heuristics. Override with `--latent-size` if needed.
 

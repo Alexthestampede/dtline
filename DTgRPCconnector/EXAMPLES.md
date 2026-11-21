@@ -372,7 +372,7 @@ with DrawThingsClient("server.example.com:7859", insecure=False, verify_ssl=Fals
     client.save_images(images, output_dir="output", prefix="autumn")
 ```
 
-**Qwen Image 2.1 outputs RGBA.** The 4th channel carries alpha: `generate_image()` returns the raw 4-channel tensor, and `save_images()` / `tensor_to_pil()` decode it to an RGBA PNG, so transparency survives to disk. `decode_tensor()` reports the channel count if you need to branch on it.
+**Qwen Image 2.1 outputs 4-channel ARGB.** The first channel carries alpha in the wire tensor: `generate_image()` returns the raw 4-channel tensor, `decode_tensor()` normalizes it to RGBA, and `save_images()` / `tensor_to_pil()` decode it to an RGBA PNG, so transparency survives to disk. `decode_tensor()` reports the channel count if you need to branch on it.
 
 ---
 
