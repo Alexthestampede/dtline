@@ -12,7 +12,7 @@ A comprehensive Python client library for the [Draw Things](https://drawthings.a
 - **ControlNet**: Complete ControlNet support via `ControlNetConfig` with 18 input types
 - **LoRA in FlatBuffer**: Pass LoRA adapters directly in the generation config via `LoRAConfig`
 - **Smart Model Detection**: Automatically fetches latent size and metadata from server
-- **Wide Model Support**: SD 1.5, SD 2.x, SDXL, FLUX (incl. FLUX.2/FLUX.3 Klein), Z-Image, Qwen, MOSS Image, Cosmos 2.5, Stable Video Diffusion, LTX 2.3, and more
+- **Wide Model Support**: SD 1.5, SD 2.x, SDXL, FLUX (incl. FLUX.2/FLUX.3 Klein), Z-Image, Qwen, MOSS Image, Cosmos 2.5, MiniMax H3 Image, Stable Video Diffusion, LTX 2.3, and more
 - **Tensor Encoding/Decoding**: Proper handling of both fpzip-compressed and uncompressed float16 tensors
 - **Model Discovery**: List and browse available models and LoRAs
 - **Streaming Progress**: Real-time progress updates during generation
@@ -266,7 +266,7 @@ images: List[bytes] = client.generate_image(
 )
 ```
 
-The returned list contains PNG bytes for each generated image. Save them with:
+The returned list contains CCV tensor bytes; `save_images()` decodes them to PNG. 4-channel tensors (RGBA — e.g. Qwen Image 2.1) are saved with their alpha channel intact. Save them with:
 
 ```python
 client.save_images(images, output_dir="output", prefix="generated")
@@ -657,10 +657,13 @@ Known automatic mappings:
 | `*xl*`, `*sdxl*` | 128 | Stable Diffusion XL |
 | `*flux*`, `*klein*` | 64 | FLUX.1 / FLUX.2 / FLUX.3 Klein |
 | `*z_image*` | 64 | Z-Image (FLUX VAE) |
-| `*qwen*` | 64 | Qwen Image |
+| `*qwen*` | 64 | Qwen Image / Qwen Image 2.1 (RGBA) |
 | `*moss_image*` | 64 | MOSS Image (FLUX-2 VAE) |
+| `*minimax_h3_image*` | 64 | MiniMax H3 Image (edit, 4096px) |
 | `*cosmos*` | 64 | Cosmos 2.5 (image model) |
 | `*ltx*` | 64 | LTX 2.x video |
+
+Qwen Image 2.1 can emit **4-channel RGBA** tensors. `decode_tensor()` reports the channel count, `tensor_to_pil()` maps 4 channels to PIL `RGBA`, and `save_images()` / `save_tensor_image()` write PNGs that preserve alpha.
 
 If metadata is unavailable the client falls back to filename heuristics. Override with `--latent-size` if needed.
 

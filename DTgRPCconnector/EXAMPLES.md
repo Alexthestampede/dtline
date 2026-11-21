@@ -161,6 +161,38 @@ with DrawThingsClient("server.example.com:7859", insecure=False, verify_ssl=Fals
 
 > Model filenames come from the server's model browser — check them with `python examples/list_models.py`.
 
+### MiniMax H3 Image (4096×4096, edit model)
+
+MiniMax H3 Image (`minimax_h3_image`) is a kontext-style **edit** model that uses the canvas/moodboard images as references, addressed as `<Picture 1>`, `<Picture 2>`, … in the prompt. It is distilled to **6 steps without guidance**: use Text Guidance 1, Shift 3, **DDIM Trailing**, and 4–16 MP (upstream defaults to 4096×4096).
+
+```python
+from drawthings_client import DrawThingsClient, ImageGenerationConfig, ReferenceImage
+
+config = ImageGenerationConfig(
+    model="minimax_h3_image_i4x.ckpt",   # or the q8p variant
+    steps=6,
+    width=4096,
+    height=4096,               # 4–16 MP; upstream defaults to 4096×4096
+    cfg_scale=1.0,             # distilled without guidance
+    scheduler="DDIM Trailing",
+    shift=3.0,
+    strength=1.0,              # required for kontext/edit models
+)
+
+with DrawThingsClient("server.example.com:7859", insecure=False, verify_ssl=False) as client:
+    images = client.generate_image(
+        prompt="<Picture 1> wearing the jacket from <Picture 2>, studio lighting",
+        config=config,
+        reference_images=[
+            ReferenceImage(image="person.png", weight=1.0, hint_type="shuffle"),
+            ReferenceImage(image="jacket.png", weight=1.0, hint_type="shuffle"),
+        ],
+    )
+    client.save_images(images, output_dir="output", prefix="h3_edit")
+```
+
+> At 4096×4096 memory use is high — start at 2048×2048 while iterating, then scale up.
+
 ### Reproducible Results with Seed
 
 ```python
@@ -339,6 +371,8 @@ with DrawThingsClient("server.example.com:7859", insecure=False, verify_ssl=Fals
     )
     client.save_images(images, output_dir="output", prefix="autumn")
 ```
+
+**Qwen Image 2.1 outputs RGBA.** The 4th channel carries alpha: `generate_image()` returns the raw 4-channel tensor, and `save_images()` / `tensor_to_pil()` decode it to an RGBA PNG, so transparency survives to disk. `decode_tensor()` reports the channel count if you need to branch on it.
 
 ---
 

@@ -86,6 +86,21 @@ SCHEDULER_MAP = {
 }
 
 
+# The gRPC server returns serialized CCV NNC tensors (fpzip-compressed or
+# uncompressed float16), not PNG. These magics let the save helpers tell a
+# tensor response apart from an already-encoded image (PNG/JPEG passthrough).
+TENSOR_HEADER_SIZE = 68
+_MAGIC_UNCOMPRESSED = 0
+_MAGIC_FPZIP = 1012247
+
+
+def _is_tensor_blob(data: bytes) -> bool:
+    """Return True if ``data`` looks like a CCV NNC tensor rather than PNG/JPEG."""
+    if len(data) < TENSOR_HEADER_SIZE:
+        return False
+    return int.from_bytes(data[:4], "little") in (_MAGIC_UNCOMPRESSED, _MAGIC_FPZIP)
+
+
 @dataclass
 class LoRAConfig:
     """Configuration for a LoRA adapter.
@@ -1085,8 +1100,12 @@ class DrawThingsClient:
     ) -> List[str]:
         """Save generated images to disk.
 
+        Tensor responses (the gRPC server returns CCV tensors, not PNG) are
+        decoded to real PNGs. 4-channel tensors — e.g. Qwen Image 2.1 RGBA
+        output — are saved as RGBA PNGs so the alpha channel is preserved.
+
         Args:
-            images: List of image data as bytes
+            images: List of image data as bytes (CCV tensor or encoded image)
             output_dir: Directory to save images
             prefix: Filename prefix
 
@@ -1101,8 +1120,13 @@ class DrawThingsClient:
             filename = f"{prefix}_{i + 1}.png"
             filepath = output_path / filename
 
-            with open(filepath, "wb") as f:
-                f.write(image_data)
+            if _is_tensor_blob(image_data):
+                from tensor_decoder import tensor_to_pil
+
+                tensor_to_pil(image_data).save(filepath)
+            else:
+                with open(filepath, "wb") as f:
+                    f.write(image_data)
 
             saved_files.append(str(filepath))
 
@@ -1122,7 +1146,8 @@ class DrawThingsClient:
         Falls back to frame-only output if imageio is unavailable.
 
         Args:
-            frames: List of decoded frame bytes (PNG)
+            frames: List of frame data — CCV tensors from generate_media()
+                    (decoded automatically) or already-encoded PNG bytes
             output_path: Path for output video file (e.g. "output.mp4")
             fps: Frames per second
             audio: Optional list of audio tensor chunks from GenerationResult.audio
@@ -1145,7 +1170,15 @@ class DrawThingsClient:
             # Write frames-only video
             writer = imageio.get_writer(output_path, fps=fps, codec="libx264")
             for frame_bytes in frames:
-                frame = imageio.imread(frame_bytes)
+                if _is_tensor_blob(frame_bytes):
+                    # Frames come back as CCV tensors; decode to pixels.
+                    # Video codecs drop alpha, so flatten RGBA to RGB.
+                    import numpy as _np
+                    from tensor_decoder import tensor_to_pil
+
+                    frame = _np.asarray(tensor_to_pil(frame_bytes).convert("RGB"))
+                else:
+                    frame = imageio.imread(frame_bytes)
                 writer.append_data(frame)
             writer.close()
 

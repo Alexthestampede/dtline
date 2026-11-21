@@ -604,21 +604,8 @@ class DtlineClient:
             }
 
             if is_video:
-                # Decode tensor frames to PNG bytes first (imageio.imread can't
-                # read raw CCV tensor chunks; it needs encoded images)
-                import io as _io
-
-                frame_pngs = []
-                for image_data in generated_images:
-                    buffer = StringIO()
-                    with redirect_stdout(buffer), redirect_stderr(buffer):
-                        pil_img = tensor_to_pil(image_data)
-                    buf = _io.BytesIO()
-                    if pil_img.mode != "RGB":
-                        pil_img = pil_img.convert("RGB")
-                    pil_img.save(buf, "PNG")
-                    frame_pngs.append(buf.getvalue())
-
+                # save_video() decodes CCV tensor frames itself (and flattens
+                # RGBA to RGB for the video codec); pass them straight through.
                 # LTX video models output at a fixed 25 fps and 48 kHz audio
                 is_ltx = "ltx" in model_filename.lower()
                 actual_fps = 25 if is_ltx else 24
@@ -629,7 +616,7 @@ class DtlineClient:
                 if filepath.suffix == "":
                     filepath = filepath.with_suffix(".mp4")
                 client.save_video(
-                    frames=frame_pngs,
+                    frames=generated_images,
                     output_path=str(filepath),
                     fps=actual_fps,
                     audio=generated_audio,
