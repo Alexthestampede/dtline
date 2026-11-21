@@ -33,6 +33,7 @@ import random
 import hashlib
 import tempfile
 import subprocess
+import numpy as np
 from pathlib import Path
 from typing import Optional, Callable, List
 from dataclasses import dataclass, field
@@ -644,6 +645,8 @@ class DrawThingsClient:
         verify_ssl: bool = False,
         enable_compression: bool = False,
         ssl_cert_path: Optional[str] = None,
+        keepalive_time_ms: int = 60000,
+        keepalive_timeout_ms: int = 20000,
     ):
         """Initialize Draw Things client.
 
@@ -653,18 +656,24 @@ class DrawThingsClient:
             verify_ssl: Verify SSL certificates (only used when insecure=False).
             enable_compression: Enable gzip compression for requests/responses.
             ssl_cert_path: Path to SSL certificate file (for self-signed certs).
+            keepalive_time_ms: Interval between keepalive pings.
+            keepalive_timeout_ms: Time to wait for a ping acknowledgement.
         """
         self.server_address = server_address
 
+        # Keepalive must stay conservative. Permitting pings without calls and
+        # leaving max_pings_without_data at 0 makes gRPC servers reply
+        # GOAWAY "too_many_pings"; the client then sees the stream die as
+        # "Stream removed (Socket closed)" in the middle of a long generation.
         options = [
             ("grpc.max_send_message_length", 32 * 1024 * 1024),
             ("grpc.max_receive_message_length", 32 * 1024 * 1024),
-            ("grpc.keepalive_time_ms", 30000),
-            ("grpc.keepalive_timeout_ms", 10000),
-            ("grpc.keepalive_permit_without_calls", 1),
-            ("grpc.http2.max_pings_without_data", 0),
-            ("grpc.http2.min_time_between_pings_ms", 10000),
-            ("grpc.http2.min_ping_interval_without_data_ms", 5000),
+            ("grpc.keepalive_time_ms", keepalive_time_ms),
+            ("grpc.keepalive_timeout_ms", keepalive_timeout_ms),
+            ("grpc.keepalive_permit_without_calls", 0),
+            ("grpc.http2.max_pings_without_data", 2),
+            ("grpc.http2.min_time_between_pings_ms", 60000),
+            ("grpc.http2.min_ping_interval_without_data_ms", 60000),
         ]
 
         if enable_compression:
@@ -1132,6 +1141,127 @@ class DrawThingsClient:
 
         return saved_files
 
+    @classmethod
+    def decode_audio(cls, audio_chunks) -> Optional[bytes]:
+        """Decode ``GenerationResult.audio`` into one interleaved f32 PCM buffer.
+
+        Each entry is a reassembled fpzip-compressed CCV tensor
+        (shape ``(channels, samples)``). Entries that fail tensor decoding are
+        passed through as raw PCM. Returns ``None`` when the list is empty.
+        """
+        from tensor_decoder import decode_audio_tensor
+
+        pcm_parts = []
+        for entry in audio_chunks or []:
+            try:
+                pcm, _, _ = decode_audio_tensor(entry)
+                pcm_parts.append(pcm)
+            except ValueError:
+                pcm_parts.append(entry)
+        return b"".join(pcm_parts) if pcm_parts else None
+
+    @classmethod
+    def mux_audio_into_video(
+        cls,
+        video_path: str,
+        audio: bytes,
+        audio_sample_rate: int = 48000,
+        video_duration: float = 0.0,
+    ) -> str:
+        """Mux PCM audio into an existing video file, in place.
+
+        Sanitizes the audio (NaN/Inf removal, clamping, even sample count,
+        duration trim/pad), writes an intermediate WAV so ffmpeg can detect the
+        format, then remuxes video (stream copy) + AAC. On failure the
+        frames-only video is restored.
+
+        Unlike a raw ``-f f32le`` pipe this cannot mis-align on odd byte
+        counts, and it deliberately omits ``-shortest`` when the target
+        duration is known: with ``-c:v copy`` ffmpeg truncates the video tail
+        because the AAC encoder lags (measured 73 frames -> 70).
+        """
+        import imageio_ffmpeg
+        import struct
+
+        video = Path(video_path)
+
+        arr = np.frombuffer(audio[: (len(audio) // 4) * 4], dtype=np.float32).copy()
+        if arr.size == 0:
+            print("Warning: Audio is empty, skipping mux.")
+            return str(video)
+
+        had_invalid = not np.isfinite(arr).all()
+        arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+        arr = np.clip(arr, -1.0, 1.0)
+        if had_invalid:
+            print("Warning: Sanitized invalid audio samples (NaN/Inf) before muxing.")
+
+        # AAC/WAV need complete stereo frames
+        if arr.size % 2 == 1:
+            arr = np.append(arr, 0.0)
+
+        if video_duration > 0:
+            expected = int(video_duration * audio_sample_rate * 2)
+            if arr.size > expected:
+                arr = arr[:expected]
+            elif arr.size < expected:
+                arr = np.pad(arr, (0, expected - arr.size))
+
+        if np.max(np.abs(arr)) == 0:
+            print("Warning: Audio is silent, skipping mux.")
+            return str(video)
+
+        clean_audio = arr.astype(np.float32).tobytes()
+
+        temp_video = video.with_suffix(".temp" + video.suffix)
+        video.rename(temp_video)
+
+        temp_audio = video.with_suffix(".temp.wav")
+        data_size = len(clean_audio)
+        byte_rate = audio_sample_rate * 4 * 2
+        wav_header = struct.pack(
+            "<4sI4s4sIHHIIHH4sI",
+            b"RIFF",
+            36 + data_size,
+            b"WAVE",
+            b"fmt ",
+            16,  # fmt chunk size
+            3,  # IEEE float
+            2,  # stereo
+            audio_sample_rate,
+            byte_rate,
+            8,  # block align (2 ch * 4 bytes)
+            32,  # bits per sample
+            b"data",
+            data_size,
+        )
+        try:
+            with open(temp_audio, "wb") as f:
+                f.write(wav_header)
+                f.write(clean_audio)
+
+            ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+            cmd = [
+                ffmpeg_path, "-y",
+                "-i", str(temp_video),
+                "-i", str(temp_audio),
+                "-c:v", "copy",
+                "-c:a", "aac",
+            ]
+            if video_duration <= 0:
+                cmd.append("-shortest")
+            cmd.append(str(video))
+            subprocess.run(cmd, check=True)
+            temp_video.unlink(missing_ok=True)
+        except Exception:
+            if not video.exists() and temp_video.exists():
+                temp_video.rename(video)
+            raise
+        finally:
+            temp_audio.unlink(missing_ok=True)
+
+        return str(video)
+
     def save_video(
         self,
         frames: List[bytes],
@@ -1185,78 +1315,23 @@ class DrawThingsClient:
             # If audio is provided, decode tensors and mux it in
             if audio:
                 try:
-                    import imageio_ffmpeg
-
-                    # Each entry in GenerationResult.audio is one reassembled
-                    # fpzip-compressed CCV tensor (shape (channels, samples)),
-                    # matching the upstream client which decodes every
-                    # generatedAudio element individually. Decode each and
-                    # concatenate the interleaved float32 PCM. A single entry
-                    # that is not a tensor is passed through as raw PCM.
-                    from tensor_decoder import decode_audio_tensor
-
-                    pcm_parts = []
-                    n_channels = 2
-                    for entry in audio:
-                        try:
-                            pcm, n_channels, _ = decode_audio_tensor(entry)
-                            pcm_parts.append(pcm)
-                        except ValueError:
-                            pcm_parts.append(entry)
-
-                    pcm_bytes = b"".join(pcm_parts)
-
-                    # LTX's AudioVAE can emit NaN/Inf or wildly out-of-range
-                    # samples that break AAC encoding. Sanitize before muxing:
-                    # replace invalid samples with silence, clamp to [-1, 1].
-                    try:
-                        import numpy as _np
-
-                        arr = _np.frombuffer(pcm_bytes, dtype=_np.float32).copy()
-                        if arr.size:
-                            had_invalid = not _np.isfinite(arr).all()
-                            arr = _np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
-                            arr = _np.clip(arr, -1.0, 1.0)
-                            if had_invalid:
-                                print(
-                                    "Warning: Sanitized invalid audio samples "
-                                    "(NaN/Inf) before muxing."
-                                )
-                            pcm_bytes = arr.astype(_np.float32).tobytes()
-                    except Exception:
-                        pass  # If sanitization fails, attempt mux with raw PCM
-
-                    temp_video = output.with_suffix(".temp" + output.suffix)
-                    output.rename(temp_video)
-
-                    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
-                    cmd = [
-                        ffmpeg_path,
-                        "-y",
-                        "-i",
-                        str(temp_video),
-                        "-f",
-                        "f32le",
-                        "-ar",
-                        str(audio_sample_rate),
-                        "-ac",
-                        str(n_channels),
-                        "-i",
-                        "-",
-                        "-c:v",
-                        "copy",
-                        "-c:a",
-                        "aac",
-                        "-shortest",
-                        str(output),
-                    ]
-                    subprocess.run(cmd, input=pcm_bytes, check=True)
-                    temp_video.unlink(missing_ok=True)
+                    pcm = (
+                        bytes(audio)
+                        if isinstance(audio, (bytes, bytearray))
+                        else self.decode_audio(audio)
+                    )
+                    if not pcm:
+                        print("Warning: no decodable audio, keeping frames-only video.")
+                    else:
+                        type(self).mux_audio_into_video(
+                            video_path=str(output),
+                            audio=pcm,
+                            audio_sample_rate=audio_sample_rate,
+                            video_duration=len(frames) / max(fps, 1),
+                        )
                 except Exception as e:
                     print(f"Warning: Could not mux audio: {e}")
                     # Keep frames-only video
-                    if not output.exists() and temp_video.exists():
-                        temp_video.rename(output)
 
             return str(output)
         except ImportError:
